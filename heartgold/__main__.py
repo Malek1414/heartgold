@@ -14,6 +14,7 @@ def main():
     r.add_argument("--model", default="sonnet")
     r.add_argument("--candidates", type=int, default=3)
     r.add_argument("--diff-rounds", type=int, default=2)
+    r.add_argument("--time-limit", type=int, default=1500, help="seconds of wall clock for the whole run")
     r.add_argument("--test-cmd")
     r.add_argument("--bench-cmd")
     a = ap.parse_args()
@@ -22,7 +23,7 @@ def main():
         sys.exit("give --goal or --goal-file")
     cls = SpeedRun if (SPEED_WORDS.search(goal) and (pathlib.Path(a.repo) / "bench.py").exists()
                        and re.search(r"(only goal|as fast as possible)", goal, re.I)) else Run
-    ok = cls(a.repo, goal, a.model, a.budget_usd, a.candidates, a.diff_rounds, a.test_cmd, a.bench_cmd).run()
+    ok = cls(a.repo, goal, a.model, a.budget_usd, a.candidates, a.diff_rounds, a.test_cmd, a.bench_cmd, a.time_limit).run()
     sys.exit(0 if ok else 1)
 
 

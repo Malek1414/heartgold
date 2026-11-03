@@ -100,3 +100,28 @@ def fetch_specs(goal, passages, workdir, model, budget, log, spec_dir):
                 saved.append(url)
     log("research.specs", wanted=want, saved=saved)
     return saved
+
+
+def github_code(query, n=3, max_chars=5000):
+    """Real implementations from GitHub code search (needs an authenticated `gh`)."""
+    import base64
+    if not shutil.which("gh"):
+        return []
+    try:
+        p = subprocess.run(["gh", "search", "code", query, "--language", "python", "--limit", str(n),
+                            "--json", "repository,path,url"], capture_output=True, text=True, timeout=60)
+        hits = json.loads(p.stdout or "[]")
+    except Exception:
+        return []
+    out = []
+    for h in hits:
+        repo, path = h["repository"]["nameWithOwner"], h["path"]
+        try:
+            q = subprocess.run(["gh", "api", f"repos/{repo}/contents/{path}", "--jq", ".content"],
+                               capture_output=True, text=True, timeout=60)
+            text = base64.b64decode(q.stdout.strip()).decode("utf-8", "replace")
+        except Exception:
+            continue
+        out.append(dict(query=query, url=h.get("url") or f"https://github.com/{repo}/blob/HEAD/{path}",
+                        title=f"{repo}/{path}", text=text[:max_chars]))
+    return out

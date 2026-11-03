@@ -33,7 +33,7 @@ def sh(cmd, cwd, timeout=600):
 
 class Run:
     def __init__(self, repo, goal, model="sonnet", budget=3.0, candidates=3, diff_rounds=2,
-                 test_cmd=None, bench_cmd=None):
+                 test_cmd=None, bench_cmd=None, time_limit=1500):
         self.repo = pathlib.Path(repo).resolve()
         self.goal, self.model, self.budget = goal, model, budget
         self.n_cand, self.diff_rounds = candidates, diff_rounds
@@ -44,6 +44,7 @@ class Run:
         self.ledger = self.state / "ledger.jsonl"
         self.test_cmd, self.bench_cmd = test_cmd, bench_cmd
         self.t0 = time.time()
+        self.time_limit = time_limit
         self.fix_stalled = False
 
     # ---------- bookkeeping
@@ -402,31 +403,99 @@ class SpeedRun(Run):
         return ideas
 
     def oracle(self):
-        """Probe expressions + the ORIGINAL code's outputs for them, plus an independent benchmark."""
+        """Probe expressions + the ORIGINAL code's outputs for them, plus an independent benchmark.
+        Two separate agent calls (each retried once), so one failing does not lose the other."""
         from .diff import run_probe
-        probe = self.state / "probe.json"
-        alt = self.state / "bench_alt.py"
+        probe, alt = self.state / "probe.json", self.state / "bench_alt.py"
         wt = self.worktree("oracle")
-        claude(
-            f"Goal:\n{self.goal}\n\nModules: {', '.join(self.py_modules)}\n\n"
-            f"1) Write {probe} as JSON {{\"setup\": \"<import lines>\", \"exprs\": [...]}} with 150-300 Python "
-            "expressions calling the public API on varied inputs: edge cases (empty, size 0/1, duplicates, unicode, "
-            "extreme values) and random medium-size inputs written as literals or built deterministically inline "
-            "(e.g. with random.Random(seed) inside the expression). Each must finish within ~1 second on the CURRENT "
-            "slow code and return a plain comparable value. Prefer a small generator script in /tmp.\n"
-            f"2) Write {alt}: an independent benchmark of the same public API on a DIFFERENT input distribution and "
-            "sizes than bench.py (so a speedup that only works for bench.py's inputs is caught). It must print only the "
-            "elapsed seconds on the last line and take 1-10 s on the current code.\nDo not modify the repository.",
-            str(wt), self.model, self.slice(0.06), timeout=900)
-        ok = probe.exists() and alt.exists()
-        expected = run_probe(wt, probe) if ok else None
-        if expected is not None:
+        mods = ", ".join(self.py_modules)
+        for attempt in range(2):
+            if probe.exists():
+                break
+            claude(
+                f"Goal:\n{self.goal}\n\nModules: {mods}\n\nWrite {probe} as JSON {{\"setup\": \"<import lines>\", "
+                "\"exprs\": [...]}} with 150-300 Python expressions calling the public API on varied inputs: edge cases "
+                "(empty, size 0/1, duplicates, unicode, extreme values) and random medium inputs built deterministically "
+                "inline (e.g. random.Random(seed) inside the expression). EACH expression must finish in well under 1 "
+                "second on the CURRENT (slow) code - keep sizes small - and return a plain comparable value. Do it by "
+                "writing a short generator script in /tmp and running it. Then check the JSON loads. Do not modify the repo.",
+                str(wt), self.model, self.slice(0.05), timeout=900)
+        for attempt in range(2):
+            if alt.exists():
+                break
+            claude(
+                f"Goal:\n{self.goal}\n\nModules: {mods}\n\nRead bench.py, then write {alt}: an independent benchmark of "
+                "the same public API on a DIFFERENT input distribution than bench.py (other sizes, alphabets/value ranges, "
+                "adversarial worst cases such as tiny alphabets or many duplicates), so a speedup that only works for "
+                "bench.py's inputs is caught. It must import from src the same way bench.py does, print only the elapsed "
+                "seconds on its last line, and take 1-10 s on the CURRENT code (run it to check). Do not modify the repo.",
+                str(wt), self.model, self.slice(0.04), timeout=900)
+        expected = None
+        if probe.exists():
+            try:
+                json.loads(probe.read_text())
+                expected = run_probe(wt, probe)
+            except Exception:
+                expected = None
+        if expected is None or all(str(x).startswith("!") for x in expected):
+            expected = None
+        else:
             (self.state / "probe_expected.json").write_text(json.dumps(expected))
-        shutil.copy(alt, wt / "_bench_alt.py") if alt.exists() else None
-        base_alt = self.bench_file(wt, "_bench_alt.py") if alt.exists() else None
+        base_alt = None
+        if alt.exists():
+            shutil.copy(alt, wt / "_bench_alt.py")
+            base_alt = self.bench_file(wt, "_bench_alt.py")
+            if base_alt == float("inf"):
+                alt.unlink()
+                base_alt = None
         self.drop_worktree(wt)
-        self.log("speed.oracle", probe=ok and expected is not None, exprs=len(expected or []), base_alt=base_alt)
+        self.log("speed.oracle", probe=expected is not None, exprs=len(expected or []), base_alt=base_alt)
         return expected, base_alt
+
+    def merge(self, ref):
+        code, out = sh(f"git merge -q --ff-only {ref}", self.repo)
+        if code != 0:
+            code, out = sh(f"git checkout -q {ref} -- . && git -c user.email=rf@rf -c user.name=heartgold "
+                           "commit -qam 'heartgold: apply fastest verified version'", self.repo)
+        self.log("speed.merged", ref=ref[:10], ok=code == 0)
+
+    def objective(self, m):
+        b, a = m["bench"], m.get("alt")
+        return (b * a) ** 0.5 if a else b
+
+    def more_ideas(self, ref, history):
+        """Research round on a stall: web (searchify) + GitHub code search aimed at what failed so far."""
+        from .research import github_code, search_passages
+        wt = self.worktree("ideas", ref)
+        tried = "\n".join(f"- {h}" for h in history)
+        plan = claude(
+            f"Goal:\n{self.goal}\n\nThe current best implementation is in src/ (read it). Tried so far:\n{tried}\n\n"
+            "Progress has stalled. Plan a research round to find bigger wins: 3 web search queries (full questions, "
+            "e.g. fastest known algorithm / pure-Python tricks for exactly this) and 3 GitHub code-search queries "
+            "(2-3 keywords or a function name, e.g. 'myers bitvector', 'def lcs'). Do not modify files. "
+            'Reply only with JSON: {"web": [...], "github": [...]}',
+            str(wt), self.model, self.slice(0.02), tools=["Read", "Grep", "Glob"])
+        q = extract_json(plan, {}) or {}
+        web, gh = (q.get("web") or [])[:3], (q.get("github") or [])[:3]
+        with ThreadPoolExecutor(6) as ex:
+            found = [p for ps in ex.map(search_passages, web) for p in ps][:12]
+            found += [p for ps in ex.map(github_code, gh) for p in ps][:6]
+        self.log("speed.research_round", web=web, github=gh, sources=[p["url"] for p in found])
+        src = "\n\n".join(f"[{k}] {p['url']}\n{p['text'][:3000]}" for k, p in enumerate(found))
+        reply = claude(
+            f"Goal:\n{self.goal}\n\nCurrent best code is in src/. Tried so far:\n{tried}\n\nNew research (web pages and "
+            f"real GitHub implementations):\n{src or '(nothing found)'}\n\nPropose 3 NEW strategies that could give a "
+            "further LARGE speedup, grounded in this research where possible (say which source). Retrying a rejected "
+            "idea is fine if you can say what went wrong last time and how to do it better. Do not modify files. "
+            'Reply only with JSON: {"ideas": [{"name": "...", "how": "...", "source": 0}]}',
+            str(wt), self.model, self.slice(0.04), tools=["Read", "Grep", "Glob", "Bash"])
+        self.drop_worktree(wt)
+        ideas = (extract_json(reply, {}) or {}).get("ideas") or []
+        for it in ideas:
+            k = it.get("source")
+            it["url"] = found[k]["url"] if isinstance(k, int) and 0 <= k < len(found) else None
+        self.log("speed.more_ideas", ideas=[i.get("name") for i in ideas])
+        return ideas[:3]
 
     def bench_file(self, wt, fname):
         best = None
@@ -481,39 +550,36 @@ class SpeedRun(Run):
         self.log("speed.baseline", bench=base["bench"], alt=base["alt"])
         ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
         best, best_ref, history, queue = base, self.base, [], list(ideas)
-        rnd = 0
-        while queue and self.left() > self.budget * 0.15:
+        rnd, self.stale = 0, 0
+        deadline = self.t0 + self.time_limit
+        while queue and self.left() > self.budget * 0.15 and time.time() + 420 < deadline:
             rnd += 1
             batch = [queue.pop(0) for _ in range(min(3, len(queue)))]
             with ThreadPoolExecutor(len(batch)) as ex:
                 results = list(ex.map(lambda a: self.attempt(a[0], best_ref, a[1], best, history), enumerate(batch)))
             winner = None
             for (wt, m), idea in zip(results, batch):
-                faster = (m["ok"] and m["bench"] < best["bench"] * 0.97
+                # must be faster on the combined (geometric-mean) objective and not slower on either benchmark
+                faster = (m["ok"] and self.objective(m) < self.objective(best) * 0.97
+                          and m["bench"] < best["bench"] * 1.03
                           and (best.get("alt") is None or m["alt"] is None or m["alt"] < best["alt"] * 1.03))
                 history.append(f"{idea.get('name')}: {'kept' if faster else 'rejected'} "
                                f"(bench {m['bench']:.4f}, identical={m['same']}, tests={m['tests']})")
-                if faster and (winner is None or m["bench"] < winner[1]["bench"]):
+                if faster and (winner is None or self.objective(m) < self.objective(winner[1])):
                     winner = (wt, m)
             if winner:
                 best_ref, best = self.head(winner[0]), winner[1]
+                self.merge(best_ref)  # merge every win at once, so a timeout never loses it
             for wt, _ in results:
                 self.drop_worktree(wt)
             self.log("speed.round", round=rnd, best=best["bench"], alt=best.get("alt"), improved=bool(winner))
-            if not winner and rnd >= 2:
-                # nothing helped twice in a row: ask for fresh ideas once, then stop
-                if not getattr(self, "_refreshed", False) and self.left() > self.budget * 0.3:
-                    self._refreshed = True
-                    queue = [i for i in self.ideas() if i.get("name") not in {h.split(":")[0] for h in history}]
-                else:
-                    break
+            self.stale = 0 if winner else self.stale + 1
+            if self.stale >= 3:
+                break  # three rounds without progress, even after fresh research
+            if (self.stale or not queue) and self.left() > self.budget * 0.2:
+                # no improvement (or out of ideas): a new web + GitHub research round seeds the next round
+                queue = self.more_ideas(best_ref, history) + queue
         keep = best_ref != self.base
-        if keep:
-            code, out = sh(f"git merge -q --ff-only {best_ref}", self.repo)
-            if code != 0:
-                code, out = sh(f"git checkout -q {best_ref} -- . && git -c user.email=rf@rf -c user.name=heartgold "
-                               "commit -qam 'heartgold: apply fastest verified version'", self.repo)
-            keep = code == 0
         self.log("done", kept=keep, base=base["bench"], best=best["bench"], speedup=round(base["bench"] / best["bench"], 2))
         (self.state / "report.md").write_text(
             f"# heartgold speed report\n\nGoal: {self.goal.strip()}\n\nbench: {base['bench']:.4f}s -> {best['bench']:.4f}s "

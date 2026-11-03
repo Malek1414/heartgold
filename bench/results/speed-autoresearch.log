@@ -1,0 +1,5 @@
+fuzzymatch score=0.393 hidden= 40/40 visible= 1/1 speed=0.393 cost=$1.738 748s
+lcs        score=1.472 hidden=124/124 visible= 1/1 speed=1.472 cost=$1.159 598s
+nqueens    score=1.013 hidden= 12/12 visible= 1/1 speed=1.013 cost=$0.514 543s
+primes     score=0.386 hidden= 35/41 visible= 0/1 speed=1.878 cost=$0.139 388s
+TOTAL autoresearch: 0.816  -> /Users/malekhassan/Desktop/heartgold/bench/results/speed-autoresearch-20261103-220241.json
