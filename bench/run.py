@@ -21,7 +21,7 @@ SANDBOX = f"""(version 1)
 (allow default)
 (deny file-read* (subpath "{ROOT}/bench/fixtures") (subpath "{ROOT}/bench/reference")
                  (subpath "{ROOT}/bench/results") (regex #"/_hidden_tests(/|$)") (regex #"_hidden_check\\.py$")
-                 (regex #"_bench_transcript\\.txt$"))
+                 (regex #"_bench_transcript\\.txt$") (regex #"_bench_hidden\\.py$"))
 """
 
 
@@ -97,9 +97,15 @@ def adapter_autoresearch(work, goal, budget, timeout):
     dst = pathlib.Path(work) / ".claude" / "skills" / "autoresearch"
     shutil.copytree(skill, dst)
     sh("git add -A && git commit -qm 'add skill'", work, 30)
-    prompt = (f"/autoresearch\nGoal: {goal.strip()}\n"
-              f"Metric: number of passing tests (higher is better)\n"
-              f"Verify: {TEST_CMD} 2>&1 | tail -1\nIterations: 15")
+    if (pathlib.Path(work) / "bench.py").exists() and "only goal" in goal:
+        # speed task: autoresearch's documented metric+guard pattern
+        prompt = (f"/autoresearch\nGoal: {goal.strip()}\n"
+                  f"Metric: seconds printed by bench.py (lower is better)\n"
+                  f"Verify: {PY} bench.py\nGuard: {TEST_CMD}\nIterations: 15")
+    else:
+        prompt = (f"/autoresearch\nGoal: {goal.strip()}\n"
+                  f"Metric: number of passing tests (higher is better)\n"
+                  f"Verify: {TEST_CMD} 2>&1 | tail -1\nIterations: 15")
     return claude_run(prompt, work, budget, timeout)
 
 
@@ -140,6 +146,29 @@ def run_fixture(tool, name, budget, timeout):
     hid_p, hid_t = pytest_counts(work, "tests/_hidden_check.py")
     after_time = bench_time(work)
     meta = json.loads((fx / "meta.json").read_text()) if (fx / "meta.json").exists() else {}
+    if meta.get("speed_mode") == "open":
+        # open-ended speed: hidden benchmark (different inputs than bench.py), no ceiling on the score
+        shutil.copy(fx / "hidden" / "bench_hidden.py", work / "_bench_hidden.py")
+        best = None
+        for _ in range(3):
+            code, out, _ = sh(f"{PY} _bench_hidden.py", work, 300)
+            try:
+                v = float(out.strip().splitlines()[-1]) if code == 0 else None
+            except (ValueError, IndexError):
+                v = None
+            if v is None:
+                best = None
+                break
+            best = v if best is None else min(best, v)
+        frac = hid_p / hid_t if hid_t else 0.0
+        speedup = meta["base_hidden_time"] / best if best else 0.0
+        speed = math.log10(speedup) / 2 if speedup > 1 else 0.0   # 100x = 1.0, 1000x = 1.5, ...
+        score = (frac ** 10) * speed
+        res = dict(fixture=name, hidden=round(frac, 3), hidden_raw=f"{hid_p}/{hid_t}", visible=f"{vis_p}/{vis_t}",
+                   speed=round(speed, 3), speedup=round(speedup, 1), after_time=best, cost_usd=round(cost, 3),
+                   seconds=round(elapsed), contaminated=contaminated, invalid=limited, score=round(score, 3), work=str(work))
+        (work / "_bench_transcript.txt").write_text(transcript)
+        return res
     speed = None
     if base_time and after_time:
         speedup = base_time / max(after_time, 1e-6)

@@ -1,6 +1,6 @@
-import argparse, pathlib, sys
+import argparse, pathlib, re, sys
 
-from .core import Run
+from .core import SPEED_WORDS, Run, SpeedRun
 
 
 def main():
@@ -20,7 +20,9 @@ def main():
     goal = a.goal or (pathlib.Path(a.repo) / a.goal_file).read_text() if a.goal_file else a.goal
     if not goal:
         sys.exit("give --goal or --goal-file")
-    ok = Run(a.repo, goal, a.model, a.budget_usd, a.candidates, a.diff_rounds, a.test_cmd, a.bench_cmd).run()
+    cls = SpeedRun if (SPEED_WORDS.search(goal) and (pathlib.Path(a.repo) / "bench.py").exists()
+                       and re.search(r"(only goal|as fast as possible)", goal, re.I)) else Run
+    ok = cls(a.repo, goal, a.model, a.budget_usd, a.candidates, a.diff_rounds, a.test_cmd, a.bench_cmd).run()
     sys.exit(0 if ok else 1)
 
 

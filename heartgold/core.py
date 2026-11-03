@@ -44,6 +44,7 @@ class Run:
         self.ledger = self.state / "ledger.jsonl"
         self.test_cmd, self.bench_cmd = test_cmd, bench_cmd
         self.t0 = time.time()
+        self.fix_stalled = False
 
     # ---------- bookkeeping
     def log(self, event, **kw):
@@ -211,14 +212,15 @@ class Run:
             "value (str/int/bool/list/tuple), e.g. str(...), comparisons, list(...). Cover every rule and corner of "
             "the specification: each grammar branch, boundaries, invalid input that must be rejected, alternative "
             "spellings, ordering, combinations of features, unicode, empty input. Generate them with a small script "
-            "if that helps (delete the script after). Expressions must be deterministic and run fast. Only write "
-            f"{probe}; do not modify the repository.",
-            str(wt), self.model, self.slice(0.06), timeout=900)
+            "if that helps (best: write a short generator script in /tmp that emits the JSON). Expressions must be "
+            f"deterministic and run fast. Only write {probe}; do not modify the repository.",
+            str(wt), self.model, self.slice(0.1), timeout=900)
         try:
             data = json.loads(probe.read_text())
             assert isinstance(data.get("exprs"), list) and data.get("setup")
-        except Exception:
+        except Exception as e:
             probe.unlink(missing_ok=True)
+            self.log("probe_failed", error=repr(e)[:200])
             return None
         self.log("probe", exprs=len(data["exprs"]))
         return probe
@@ -282,6 +284,7 @@ class Run:
             sh(f"git reset -q --hard {before}", wt)
             self.log("fix", kept=False, before=g["key"], after=g2["key"])
             return g
+        self.fix_stalled = g2["key"] == g["key"]  # a fix that changed nothing will not be retried
         self.log("fix", kept=True, before=g["key"], after=g2["key"])
         return g2
 
@@ -328,7 +331,7 @@ class Run:
         self.log("winner", key=g["key"], others=[c[1]["key"] for c in cands[1:]])
         for c in cands[1:]:
             self.drop_worktree(c[0])
-        if self.left() > self.budget * 0.1 and self.failing(g):
+        if self.left() > self.budget * 0.1 and self.failing(g) and not self.fix_stalled:
             g = self.fix(wt, g, "Some required tests still fail.")
         if self.left() > self.budget * 0.06:
             g = self.optimize(wt, g)
@@ -362,3 +365,159 @@ class Run:
             src = f" - [{r['url']}]({r['url']}): \"{r['quote']}\"" if r.get("verified") else " - (unsourced)"
             lines.append(f"- **{r.get('id')}** {r.get('text')}{src}")
         (self.state / "report.md").write_text("\n".join(lines) + "\n")
+
+
+SPEED_WORDS = re.compile(r"\b(fast|faster|speed|performance|latency|throughput|optimi[sz]e)\b", re.I)
+
+
+class SpeedRun(Run):
+    """Open-ended optimization: research algorithms, then rounds of parallel attempts from the current best.
+    A change is kept only if (1) its outputs match the ORIGINAL code on hundreds of probe inputs, (2) all
+    tests pass, and (3) it is faster on both the repo's benchmark and an independent one heartgold wrote."""
+
+    def ideas(self):
+        reply_q = claude(
+            f"Goal:\n{self.goal}\n\nCode:\n{self.code}\n\nWrite 4 web search queries to find the FASTEST known "
+            "algorithms and pure-Python implementation tricks for exactly this computation (papers, competitive-"
+            'programming write-ups, well-known libraries\' approaches). Reply only with JSON: {"queries": [...]}',
+            str(self.repo), self.model, self.slice(0.02), tools=[])
+        from .research import search_passages
+        queries = ((extract_json(reply_q, {}) or {}).get("queries") or [])[:4]
+        with ThreadPoolExecutor(4) as ex:
+            passages = [p for ps in ex.map(search_passages, queries) for p in ps][:20]
+        src = "\n\n".join(f"[{i}] {p['url']}\n{p['text']}" for i, p in enumerate(passages))
+        reply = claude(
+            f"Goal:\n{self.goal}\n\nCode:\n{self.code}\n\nResearch:\n{src or '(none)'}\n\n"
+            "List the 6 most promising, DIFFERENT optimization strategies for this code in pure Python, best first "
+            "(algorithmic changes before micro-optimizations; e.g. a better algorithm, bit-parallelism with Python "
+            "big ints, early cutoffs/pruning, better data layout, built-ins that run in C such as bytes/bytearray "
+            "slicing, str methods, sorting). For each: name, how it works, expected speedup, the passage it came "
+            'from (index or null). Reply only with JSON: {"ideas": [{"name": "...", "how": "...", "source": 0}]}',
+            str(self.repo), self.model, self.slice(0.05), tools=[])
+        ideas = (extract_json(reply, {}) or {}).get("ideas") or []
+        for it in ideas:
+            s = it.get("source")
+            it["url"] = passages[s]["url"] if isinstance(s, int) and 0 <= s < len(passages) else None
+        self.log("speed.ideas", queries=queries, ideas=[i.get("name") for i in ideas])
+        return ideas
+
+    def oracle(self):
+        """Probe expressions + the ORIGINAL code's outputs for them, plus an independent benchmark."""
+        from .diff import run_probe
+        probe = self.state / "probe.json"
+        alt = self.state / "bench_alt.py"
+        wt = self.worktree("oracle")
+        claude(
+            f"Goal:\n{self.goal}\n\nModules: {', '.join(self.py_modules)}\n\n"
+            f"1) Write {probe} as JSON {{\"setup\": \"<import lines>\", \"exprs\": [...]}} with 150-300 Python "
+            "expressions calling the public API on varied inputs: edge cases (empty, size 0/1, duplicates, unicode, "
+            "extreme values) and random medium-size inputs written as literals or built deterministically inline "
+            "(e.g. with random.Random(seed) inside the expression). Each must finish within ~1 second on the CURRENT "
+            "slow code and return a plain comparable value. Prefer a small generator script in /tmp.\n"
+            f"2) Write {alt}: an independent benchmark of the same public API on a DIFFERENT input distribution and "
+            "sizes than bench.py (so a speedup that only works for bench.py's inputs is caught). It must print only the "
+            "elapsed seconds on the last line and take 1-10 s on the current code.\nDo not modify the repository.",
+            str(wt), self.model, self.slice(0.06), timeout=900)
+        ok = probe.exists() and alt.exists()
+        expected = run_probe(wt, probe) if ok else None
+        if expected is not None:
+            (self.state / "probe_expected.json").write_text(json.dumps(expected))
+        shutil.copy(alt, wt / "_bench_alt.py") if alt.exists() else None
+        base_alt = self.bench_file(wt, "_bench_alt.py") if alt.exists() else None
+        self.drop_worktree(wt)
+        self.log("speed.oracle", probe=ok and expected is not None, exprs=len(expected or []), base_alt=base_alt)
+        return expected, base_alt
+
+    def bench_file(self, wt, fname):
+        best = None
+        for _ in range(3):
+            code, out = sh(f"{sys.executable} {fname}", wt, 300)
+            try:
+                v = float(out.strip().splitlines()[-1]) if code == 0 else float("inf")
+            except (ValueError, IndexError):
+                v = float("inf")
+            best = v if best is None else min(best, v)
+        return best
+
+    def measure(self, wt, expected):
+        from .diff import run_probe
+        wt = pathlib.Path(wt)
+        g = self.gate(wt)
+        same = True
+        if expected is not None:
+            got = run_probe(wt, self.state / "probe.json")
+            same = got == expected
+        alt = None
+        if (self.state / "bench_alt.py").exists():
+            shutil.copy(self.state / "bench_alt.py", wt / "_bench_alt.py")
+            alt = self.bench_file(wt, "_bench_alt.py")
+            (wt / "_bench_alt.py").unlink(missing_ok=True)
+        return dict(ok=g["orig"]["ok"] and same, same=same, tests=g["orig"]["ok"], bench=g["bench"], alt=alt)
+
+    def attempt(self, i, ref, idea, best, history):
+        wt = self.worktree(f"opt{i}", ref)
+        tried = "\n".join(f"- {h}" for h in history[-12:]) or "(nothing yet)"
+        claude(
+            f"Goal:\n{self.goal}\n\nCurrent speed: `{self.bench_cmd}` = {best['bench']:.4f}s"
+            + (f", independent benchmark = {best['alt']:.4f}s" if best.get("alt") else "") +
+            f"\n\nStrategy to implement now: {idea.get('name')}: {idea.get('how')}"
+            + (f" (source: {idea['url']})" if idea.get("url") else "") +
+            f"\n\nAlready tried in earlier rounds:\n{tried}\n\n"
+            "Implement this strategy as well as you can, measure with the benchmark, and iterate on it a few times. "
+            "Results must stay IDENTICAL to the current code for every input (heartgold checks this on hundreds of "
+            f"hidden probe inputs). All tests must pass: {self.test_cmd}. Do not edit tests or benchmarks, do not "
+            "special-case the benchmark's inputs, no caching across calls, no hard-coded answers.",
+            wt, self.model, self.slice(0.12), timeout=1500)
+        self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
+        m = self.measure(wt, self.expected)
+        self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"])
+        return wt, m
+
+    def run(self):
+        self.detect()
+        self.expected, base_alt = self.oracle()
+        base = self.measure(self.repo, self.expected)
+        base["alt"] = base_alt or base["alt"]
+        self.log("speed.baseline", bench=base["bench"], alt=base["alt"])
+        ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
+        best, best_ref, history, queue = base, self.base, [], list(ideas)
+        rnd = 0
+        while queue and self.left() > self.budget * 0.15:
+            rnd += 1
+            batch = [queue.pop(0) for _ in range(min(3, len(queue)))]
+            with ThreadPoolExecutor(len(batch)) as ex:
+                results = list(ex.map(lambda a: self.attempt(a[0], best_ref, a[1], best, history), enumerate(batch)))
+            winner = None
+            for (wt, m), idea in zip(results, batch):
+                faster = (m["ok"] and m["bench"] < best["bench"] * 0.97
+                          and (best.get("alt") is None or m["alt"] is None or m["alt"] < best["alt"] * 1.03))
+                history.append(f"{idea.get('name')}: {'kept' if faster else 'rejected'} "
+                               f"(bench {m['bench']:.4f}, identical={m['same']}, tests={m['tests']})")
+                if faster and (winner is None or m["bench"] < winner[1]["bench"]):
+                    winner = (wt, m)
+            if winner:
+                best_ref, best = self.head(winner[0]), winner[1]
+            for wt, _ in results:
+                self.drop_worktree(wt)
+            self.log("speed.round", round=rnd, best=best["bench"], alt=best.get("alt"), improved=bool(winner))
+            if not winner and rnd >= 2:
+                # nothing helped twice in a row: ask for fresh ideas once, then stop
+                if not getattr(self, "_refreshed", False) and self.left() > self.budget * 0.3:
+                    self._refreshed = True
+                    queue = [i for i in self.ideas() if i.get("name") not in {h.split(":")[0] for h in history}]
+                else:
+                    break
+        keep = best_ref != self.base
+        if keep:
+            code, out = sh(f"git merge -q --ff-only {best_ref}", self.repo)
+            if code != 0:
+                code, out = sh(f"git checkout -q {best_ref} -- . && git -c user.email=rf@rf -c user.name=heartgold "
+                               "commit -qam 'heartgold: apply fastest verified version'", self.repo)
+            keep = code == 0
+        self.log("done", kept=keep, base=base["bench"], best=best["bench"], speedup=round(base["bench"] / best["bench"], 2))
+        (self.state / "report.md").write_text(
+            f"# heartgold speed report\n\nGoal: {self.goal.strip()}\n\nbench: {base['bench']:.4f}s -> {best['bench']:.4f}s "
+            f"({base['bench'] / best['bench']:.1f}x); independent bench: {base.get('alt')} -> {best.get('alt')}\n\n"
+            "## Attempts\n\n" + "\n".join(f"- {h}" for h in history) + "\n")
+        print(f"HEARTGOLD_COST_USD={COST['usd']:.4f}")
+        return keep
