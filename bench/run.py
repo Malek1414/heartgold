@@ -118,7 +118,7 @@ def run_fixture(tool, name, budget, timeout):
     vis_p, vis_t = pytest_counts(work, " ".join(f"tests/{f.name}" for f in (fx / "repo" / "tests").iterdir()))
     hid_dir = work / "_hidden_tests"
     shutil.copytree(fx / "hidden", hid_dir)
-    shutil.copy(hid_dir / os.listdir(hid_dir)[0], work / "tests" / "_hidden_check.py")
+    shutil.copy(next(hid_dir.glob("test_*.py")), work / "tests" / "_hidden_check.py")
     hid_p, hid_t = pytest_counts(work, "tests/_hidden_check.py")
     after_time = bench_time(work)
     meta = json.loads((fx / "meta.json").read_text()) if (fx / "meta.json").exists() else {}
@@ -128,6 +128,9 @@ def run_fixture(tool, name, budget, timeout):
         ref = meta.get("ref_speedup", 10.0)
         speed = max(0.0, min(1.0, math.log(max(speedup, 1e-9)) / math.log(ref)))
     hidden = hid_p / hid_t if hid_t else 0.0
+    if "noop_pass" in meta and hid_t > meta["noop_pass"]:
+        # hard suite: fraction of the gap between the naive code and perfect that the tool closed
+        hidden = max(0.0, (hid_p - meta["noop_pass"]) / (hid_t - meta["noop_pass"]))
     clean = 1.0 if vis_t and vis_p == vis_t else 0.0
     score = (0.7 * hidden + 0.2 * speed + 0.1 * clean) if speed is not None else (0.9 * hidden + 0.1 * clean)
     res = dict(fixture=name, hidden=round(hidden, 3), hidden_raw=f"{hid_p}/{hid_t}",
@@ -145,16 +148,20 @@ def main():
     ap.add_argument("--budget-usd", type=float, default=3.0)
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--jobs", type=int, default=3)
+    ap.add_argument("--suite", default="hard", help="easy | hard | all")
     a = ap.parse_args()
-    names = a.fixtures or sorted(p.name for p in FIX.iterdir() if p.is_dir())
+    def suite(p):
+        m = p / "meta.json"
+        return json.loads(m.read_text()).get("suite", "easy") if m.exists() else "easy"
+    names = a.fixtures or sorted(p.name for p in FIX.iterdir() if p.is_dir() and a.suite in ("all", suite(p)))
     with cf.ThreadPoolExecutor(a.jobs) as ex:
         results = list(ex.map(lambda n: run_fixture(a.tool, n, a.budget_usd, a.timeout), names))
     total = sum(r["score"] for r in results) / len(results)
-    out = dict(tool=a.tool, model=MODEL, budget_usd=a.budget_usd, when=datetime.datetime.now().isoformat(timespec="seconds"),
+    out = dict(tool=a.tool, suite=a.suite, model=MODEL, budget_usd=a.budget_usd, when=datetime.datetime.now().isoformat(timespec="seconds"),
                score=round(total, 3), results=results)
     rd = ROOT / "bench" / "results"
     rd.mkdir(exist_ok=True)
-    path = rd / f"{a.tool}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"
+    path = rd / f"{a.suite}-{a.tool}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"
     path.write_text(json.dumps(out, indent=2))
     for r in results:
         print(f"{r['fixture']:10} score={r['score']:.3f} hidden={r['hidden_raw']:>6} visible={r['visible']:>4} "

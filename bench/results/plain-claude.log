@@ -1,0 +1,7 @@
+csvparse   score=1.000 hidden=   9/9 visible= 3/3 speed=None cost=$0.211 104s
+dedupe     score=0.999 hidden= 10/10 visible= 1/1 speed=0.996 cost=$0.089 31s
+fuzzy      score=1.000 hidden=   8/8 visible= 2/2 speed=1.0 cost=$0.493 222s
+lru        score=1.000 hidden=   8/8 visible= 1/1 speed=1.0 cost=$0.285 177s
+ratelimit  score=1.000 hidden=   5/5 visible= 2/2 speed=None cost=$0.18 92s
+semver     score=1.000 hidden=   9/9 visible= 2/2 speed=None cost=$0.138 61s
+TOTAL plain-claude: 1.000  -> /Users/malekhassan/Desktop/repoforge/bench/results/plain-claude-20261103-195117.json

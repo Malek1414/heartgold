@@ -1,0 +1,7 @@
+csvparse   score=1.000 hidden=   9/9 visible= 3/3 speed=None cost=$0.277 122s
+dedupe     score=1.000 hidden= 10/10 visible= 1/1 speed=1.0 cost=$0.399 165s
+fuzzy      score=1.000 hidden=   8/8 visible= 2/2 speed=1.0 cost=$0.659 332s
+lru        score=1.000 hidden=   8/8 visible= 1/1 speed=1.0 cost=$0.332 134s
+ratelimit  score=1.000 hidden=   5/5 visible= 2/2 speed=None cost=$0.426 179s
+semver     score=0.900 hidden=   8/9 visible= 2/2 speed=None cost=$0.349 130s
+TOTAL autoresearch: 0.983  -> /Users/malekhassan/Desktop/repoforge/bench/results/autoresearch-20261103-195751.json
