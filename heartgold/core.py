@@ -439,7 +439,7 @@ class SpeedRun(Run):
         expected = None
         if probe.exists():
             try:
-                json.loads(probe.read_text())
+                self.fix_probe_setup(wt, probe)
                 expected = run_probe(wt, probe)
             except Exception:
                 expected = None
@@ -457,6 +457,32 @@ class SpeedRun(Run):
         self.drop_worktree(wt)
         self.log("speed.oracle", probe=expected is not None, exprs=len(expected or []), base_alt=base_alt)
         return expected, base_alt
+
+    def fix_probe_setup(self, wt, probe):
+        """The probe's import line must work against the real layout (e.g. `src.x`, not `x`): try it, and
+        if it fails try the module paths heartgold found in the repo, then ask the agent as a last resort."""
+        data = json.loads(probe.read_text())
+
+        def works(setup):
+            code, _ = sh(f"{sys.executable} -c {shlex.quote(setup)}", wt, 60)
+            return code == 0
+
+        if works(data["setup"]):
+            return
+        variants = []
+        for mod in self.py_modules:
+            dotted = mod[:-3].replace("/", ".")
+            short = dotted.rsplit(".", 1)[-1]
+            variants.append(re.sub(rf"\b(from|import)\s+{re.escape(short)}\b", rf"\1 {dotted}", data["setup"]))
+        for v in variants:
+            if works(v):
+                data["setup"] = v
+                probe.write_text(json.dumps(data))
+                self.log("speed.probe_setup_fixed", setup=v)
+                return
+        claude(f"The import line in {probe} (key 'setup') fails when run from the repo root ({wt}). Fix ONLY that "
+               "line so it imports the public API correctly from this repo's layout, check it with python -c, and stop.",
+               str(wt), self.model, self.slice(0.01), timeout=180)
 
     def merge(self, ref):
         code, out = sh(f"git merge -q --ff-only {ref}", self.repo)
@@ -480,9 +506,18 @@ class SpeedRun(Run):
             "e.g. fastest known algorithm / pure-Python tricks for exactly this) and 3 GitHub code-search queries "
             "(2-3 keywords or a function name, e.g. 'myers bitvector', 'def lcs'). Do not modify files. "
             'Reply only with JSON: {"web": [...], "github": [...]}',
-            str(wt), self.model, self.slice(0.02), tools=["Read", "Grep", "Glob"])
+            str(wt), self.model, self.slice(0.04), tools=["Read", "Grep", "Glob"])
         q = extract_json(plan, {}) or {}
         web, gh = (q.get("web") or [])[:3], (q.get("github") or [])[:3]
+        if not web:
+            # planning failed: still search, from the goal and the best idea tried so far
+            topic = " ".join(re.findall(r"`([a-z_]+)\(", self.goal)[:1]) or self.goal.split(".")[0][:80]
+            kept = [h.split(":")[0] for h in history if "kept" in h][-1:] or [""]
+            web = [f"fastest pure Python implementation {topic} {kept[0]}".strip(),
+                   f"{topic} algorithm faster than {kept[0] or 'dynamic programming'}".strip()]
+        if not gh:
+            fn = re.findall(r"`([a-z_]+)\(", self.goal)
+            gh = [f"def {fn[0]}"] if fn else []
         with ThreadPoolExecutor(6) as ex:
             found = [p for ps in ex.map(search_passages, web) for p in ps][:12]
             found += [p for ps in ex.map(github_code, gh) for p in ps][:6]
@@ -521,7 +556,9 @@ class SpeedRun(Run):
         same = True
         if expected is not None:
             got = run_probe(wt, self.state / "probe.json")
-            same = got == expected
+            # inputs the ORIGINAL code could not finish carry no information; compare all the others
+            same = got is not None and len(got) == len(expected) and all(
+                e == "!timeout" or g == e for g, e in zip(got, expected))
         alt = None
         if (self.state / "bench_alt.py").exists():
             shutil.copy(self.state / "bench_alt.py", wt / "_bench_alt.py")

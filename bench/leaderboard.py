@@ -14,8 +14,10 @@ for p in sorted((ROOT / "results").glob("*.json"), key=lambda p: json.loads(p.re
 
 out = ["# Leaderboard", "", "Same model (sonnet) and per-fixture budget for every tool; tools run in a sandbox that",
        "cannot read hidden tests. Hard suites: score = share of the gap from the naive code to the oracle closed.",
+       "Speed suite: score = log10(speedup on a HIDDEN benchmark)/2 x (share of hidden results correct)^10;",
+       "1.0 = 100x faster, 1.5 = 1000x. Timings re-measured one at a time on an idle machine.",
        "DQ = read hidden test data (scored 0). '-' = no valid run yet.", ""]
-for suite in ("hard2", "hard", "easy"):
+for suite in ("speed", "hard2", "hard", "easy"):
     rows = [(lab, rs) for (s, lab), rs in best.items() if s == suite]
     if not rows:
         continue

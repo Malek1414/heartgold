@@ -35,7 +35,7 @@ def run_probe(wt, probe_path):
     runner.write_text(RUNNER)
     try:
         p = subprocess.run([sys.executable, str(runner), str(pathlib.Path(probe_path).resolve())], cwd=runner.parent, capture_output=True,
-                           text=True, timeout=300)
+                           text=True, timeout=900)
         return json.loads(p.stdout.strip().splitlines()[-1])
     except Exception:
         return None
