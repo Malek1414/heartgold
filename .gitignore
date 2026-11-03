@@ -1,0 +1,5 @@
+.venv/
+bench/results/*.json
+!bench/results/.keep
+__pycache__/
+bench/competitors/
