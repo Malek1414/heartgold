@@ -1,0 +1,4 @@
+graphemes  score=0.100 hidden=752/1094 visible= 1/1 speed=None cost=$0.263 158s
+idna       score=0.100 hidden=59/421 visible= 1/1 speed=None cost=$0.223 136s
+linebreak  score=0.100 hidden=10377/16673 visible= 1/1 speed=None cost=$0.259 125s
+TOTAL plain-claude: 0.100  -> /Users/malekhassan/Desktop/repoforge/bench/results/hard2-plain-claude-20261103-202517.json

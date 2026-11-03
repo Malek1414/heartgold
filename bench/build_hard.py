@@ -25,6 +25,7 @@ def test_no_banned_imports():
 
 def write(name, src, visible, goal, cases, hidden_body, banned):
     d = ROOT / name
+    keep_meta = json.loads((d / "meta.json").read_text()) if (d / "meta.json").exists() else {}
     if d.exists():
         shutil.rmtree(d)
     (d / "repo" / "src").mkdir(parents=True)
@@ -36,7 +37,8 @@ def write(name, src, visible, goal, cases, hidden_body, banned):
     (d / "hidden" / "cases.json").write_text(json.dumps(cases))
     body = textwrap.dedent(hidden_body).lstrip() + BAN_TEST.replace("{BANNED}", repr(set(banned)))
     (d / "hidden" / f"test_hidden_{name}.py").write_text(body)
-    (d / "meta.json").write_text(json.dumps({"suite": "hard", "cases": len(cases)}))
+    suite = "hard2" if name in ("graphemes", "linebreak", "idna") else "hard"
+    (d / "meta.json").write_text(json.dumps({**keep_meta, "suite": suite, "cases": len(cases)}))
     n = sum(len(v) for v in cases.values()) if isinstance(cases, dict) else len(cases)
     print(name, n, "cases")
 
@@ -199,7 +201,7 @@ def build_cron():
             return f"*/{rnd.choice([2, 3, 5, 7, 10, 15])}"
         if r < 0.6:
             a = rnd.randint(lo, hi - 1)
-            b = rnd.randint(a, hi)
+            b = rnd.randint(a + 1, hi)  # croniter wrongly treats a-a as '*', so no single-value ranges
             step = rnd.choice(["", "", f"/{rnd.randint(2, 4)}"])
             return f"{a}-{b}{step}"
         if r < 0.75:
@@ -503,9 +505,198 @@ def build_urljoin():
         ''', banned={"urllib", "requests", "yarl", "furl", "rfc3986", "httpx"})
 
 
+
+
+
+# ================================================================ hard2: data-heavy specs
+def _ucd_test(fname):
+    import urllib.request
+    url = f"https://www.unicode.org/Public/16.0.0/ucd/auxiliary/{fname}"
+    text = urllib.request.urlopen(url, timeout=60).read().decode("utf-8")
+    cases = []
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        toks = line.split()
+        chars, breaks = [], []
+        for t in toks:
+            if t in ("÷", "×"):
+                breaks.append(t == "÷")
+            else:
+                chars.append(chr(int(t, 16)))
+        cases.append(["".join(chars), breaks])
+    return cases
+
+
+def build_graphemes():
+    raw = _ucd_test("GraphemeBreakTest.txt")
+    cases = []
+    for s, br in raw:
+        out, cur = [], ""
+        for i, ch in enumerate(s):
+            if i > 0 and br[i]:
+                out.append(cur)
+                cur = ""
+            cur += ch
+        out.append(cur)
+        cases.append([s, out])
+    write("graphemes", src='''
+        """Text utilities for our terminal UI."""
+        import unicodedata
+
+
+        def graphemes(text):
+            """Split text into user-perceived characters."""
+            out = []
+            for ch in text:
+                if out and unicodedata.combining(ch):
+                    out[-1] += ch
+                else:
+                    out.append(ch)
+            return out
+        ''', visible='''
+        from src.graphemes import graphemes
+
+
+        def test_combining():
+            assert graphemes("e\\u0301x") == ["e\\u0301", "x"]
+        ''', goal='''
+        `graphemes(text)` must split text into extended grapheme clusters exactly as
+        Unicode Standard Annex #29 specifies for Unicode 16.0.0 (all GB rules, including
+        emoji ZWJ sequences, regional-indicator pairs, Hangul syllables, prepend and
+        the Indic conjunct rule). Note Python's `unicodedata` may be an older Unicode
+        version than 16.0.0. Standard library only (no `regex`, no `grapheme` package)
+        and no network access at runtime; vendoring data files into the repo is fine.
+        ''', cases=cases, hidden_body='''
+        import json, pathlib, pytest
+        from src.graphemes import graphemes
+
+        C = json.loads((pathlib.Path(__file__).parent.parent / "_hidden_tests" / "cases.json").read_text())
+
+
+        @pytest.mark.parametrize("text,expected", C, ids=[" ".join(f"{ord(c):04X}" for c in t) for t, _ in C])
+        def test_official(text, expected):
+            assert graphemes(text) == expected
+        ''', banned={"regex", "grapheme", "uniseg", "icu", "PyICU", "urllib", "requests", "http", "socket"})
+
+
+def build_linebreak():
+    raw = _ucd_test("LineBreakTest.txt")
+    cases = []
+    for s, br in raw:
+        # allowed break positions strictly inside or at end (index i = break before s[i]); drop position 0
+        cases.append([s, [i for i in range(1, len(s) + 1) if br[i]]])
+    write("linebreak", src='''
+        """Word-wrap helper."""
+
+
+        def break_opportunities(text):
+            """Return the indices i (1..len(text)) where a line break is allowed before text[i]
+            (len(text) = after the last character)."""
+            out = [i + 1 for i, ch in enumerate(text) if ch == " "]
+            if text and (not out or out[-1] != len(text)):
+                out.append(len(text))
+            return out
+        ''', visible='''
+        from src.linebreak import break_opportunities
+
+
+        def test_spaces():
+            assert break_opportunities("ab cd") == [3, 5]
+        ''', goal='''
+        `break_opportunities(text)` must return exactly the line-break opportunities
+        defined by the Unicode Line Breaking Algorithm (UAX #14) for Unicode 16.0.0,
+        default rules (LB1-LB31, with the standard tailoring-free resolution of
+        AI/SG/XX/SA/CJ classes), as exercised by the official LineBreakTest.txt.
+        Index i means a break is allowed before text[i]; len(text) is always included
+        for non-empty text (mandatory end of text). Standard library only, no network
+        at runtime; vendoring data files into the repo is fine.
+        ''', cases=cases, hidden_body='''
+        import json, pathlib, pytest
+        from src.linebreak import break_opportunities
+
+        C = json.loads((pathlib.Path(__file__).parent.parent / "_hidden_tests" / "cases.json").read_text())
+
+
+        @pytest.mark.parametrize("text,expected", C, ids=[str(i) for i in range(len(C))])
+        def test_official(text, expected):
+            assert break_opportunities(text) == expected
+        ''', banned={"regex", "uniseg", "icu", "PyICU", "urllib", "requests", "http", "socket", "pyphen"})
+
+
+def build_idna():
+    import idna
+    rnd = random.Random(46)
+    labels = ["bücher", "Bücher", "straße", "faß", "ПРИМЕР", "пример", "例え", "中文", "日本語", "παράδειγμα",
+              "ünicode", "xn--bcher-kva", "café", "nañdu", "ab--cd", "-lead", "trail-", "a" * 63, "a" * 64,
+              "क्ष", "שלום", "مثال", "a‍b", "نامه‌ای", "١٢٣", "a١",
+              "ǅemal", "ﬁle", "ｆｕｌｌ", "Ⅻ", "ⓐbc", "😀", "x́", "́x", "ascii", "EXAMPLE", "a_b",
+              "ß", "ς", "Σ", "İstanbul", "ı", "ﾊﾟ", "a­b", "kİ", "1abc", "xn--", "xn--a", "ab‌c"]
+    tlds = ["com", "de", "COM", "jp", "рф", "xn--p1ai", ""]
+    seps = [".", ".", ".", "。", "．", "｡"]
+    cases = []
+    seen = set()
+    while len(cases) < 420:
+        n = rnd.randint(1, 3)
+        dom = rnd.choice(seps).join(rnd.sample(labels, n) + [rnd.choice(tlds)])
+        if dom in seen:
+            continue
+        seen.add(dom)
+        try:
+            exp = idna.encode(dom, uts46=True, transitional=False).decode("ascii")
+        except (idna.IDNAError, UnicodeError, ValueError):
+            exp = None
+        cases.append([dom, exp])
+    write("idna", src='''
+        """Domain helpers for our mail server."""
+
+
+        def to_ascii(domain):
+            """Convert a user-typed domain name to the ASCII form used on the wire.
+            Raise ValueError for names that are not valid."""
+            out = []
+            for label in domain.split("."):
+                if all(ord(c) < 128 for c in label):
+                    out.append(label.lower())
+                else:
+                    out.append("xn--" + label.encode("punycode").decode("ascii"))
+            return ".".join(out)
+        ''', visible='''
+        from src.idna import to_ascii
+
+
+        def test_ascii_lowercased():
+            assert to_ascii("Example.COM") == "example.com"
+        ''', goal='''
+        `to_ascii(domain)` must behave exactly like the reference IDNA 2008 + UTS #46
+        processing used by the Python `idna` package (`idna.encode(domain,
+        uts46=True, transitional=False)`, Unicode 16.0.0 data): UTS #46 mapping
+        (case folding, compatibility forms, alternate dot separators), NFC, the IDNA
+        2008 validity rules (DISALLOWED/CONTEXTJ/CONTEXTO code points, hyphen rules,
+        combining-mark start, the Bidi rule of RFC 5893), Punycode (RFC 3492), label and
+        name length limits. Invalid names raise ValueError. Standard library only (the
+        `idna` package and the `encodings.idna` codec are not allowed), no network at
+        runtime; vendoring data files into the repo is fine.
+        ''', cases=cases, hidden_body='''
+        import json, pathlib, pytest
+        from src.idna import to_ascii
+
+        C = json.loads((pathlib.Path(__file__).parent.parent / "_hidden_tests" / "cases.json").read_text())
+
+
+        @pytest.mark.parametrize("domain,expected", C, ids=[str(i) for i in range(len(C))])
+        def test_case(domain, expected):
+            if expected is None:
+                with pytest.raises(ValueError):
+                    to_ascii(domain)
+            else:
+                assert to_ascii(domain) == expected
+        ''', banned={"idna", "encodings", "urllib", "requests", "http", "socket", "uts46"})
+
+
 if __name__ == "__main__":
-    build_pep440()
-    build_cron()
-    build_gitignore()
-    build_robots()
-    build_urljoin()
+    import sys
+    todo = sys.argv[1:] or ["pep440", "cron", "gitignore", "robots", "urljoin", "graphemes", "linebreak", "idna"]
+    for name in todo:
+        globals()[f"build_{name}"]()

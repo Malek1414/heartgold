@@ -66,3 +66,37 @@ def research(goal, code_summary, workdir, model, budget, log):
             r["quote"] = None
     log("research.requirements", n=len(reqs), verified=sum(r["verified"] for r in reqs))
     return reqs, passages
+
+
+def extract_page(url):
+    try:
+        p = subprocess.run(["searchify", "extract", url], capture_output=True, text=True, timeout=180)
+        data = json.loads(p.stdout[p.stdout.index("{"):])
+        r = (data.get("results") or [{}])[0]
+        return r.get("content") or ""
+    except Exception:
+        return ""
+
+
+def fetch_specs(goal, passages, workdir, model, budget, log, spec_dir):
+    """Find the canonical specification document(s) and save their FULL text for the agents."""
+    urls = "\n".join(sorted({p["url"] for p in passages}))
+    reply = claude(
+        "Goal:\n" + goal + "\n\nURLs seen during research:\n" + (urls or "(none)") +
+        "\n\nName up to 3 URLs of the AUTHORITATIVE primary documents that define the required behaviour "
+        "(the RFC / PEP / man page / official spec / reference implementation docs), preferring plain-text or "
+        "HTML versions (e.g. rfc-editor.org/rfc/rfcNNNN.txt, peps.python.org, man7.org, git-scm.com/docs). "
+        "You may use URLs not in the list if you are sure they exist. "
+        'Reply only with JSON: {"urls": ["..."]}',
+        workdir, model, budget, tools=[])
+    want = ((extract_json(reply, {}) or {}).get("urls") or [])[:3]
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    saved = []
+    with ThreadPoolExecutor(3) as ex:
+        for url, text in zip(want, ex.map(extract_page, want)):
+            if len(text) > 800:
+                name = re.sub(r"[^a-zA-Z0-9]+", "_", url.split("//", 1)[-1])[:80] + ".md"
+                (spec_dir / name).write_text(f"Source: {url}\n\n{text[:150000]}")
+                saved.append(url)
+    log("research.specs", wanted=want, saved=saved)
+    return saved

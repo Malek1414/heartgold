@@ -1,13 +1,13 @@
-"""The repoforge pipeline: map -> research -> spec tests -> candidates -> judge -> adversarial -> perf -> merge."""
+"""The heartgold pipeline: map -> research -> spec tests -> candidates -> judge -> adversarial -> perf -> merge."""
 import datetime, importlib.util, json, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .agent import COST, claude, extract_json
 from .research import research
 
-SPEC_TEST = "tests/test_repoforge_spec.py"
-ADV_TEST = "tests/test_repoforge_adversarial.py"
-SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".repoforge", ".claude"}
+SPEC_TEST = "tests/test_heartgold_spec.py"
+ADV_TEST = "tests/test_heartgold_adversarial.py"
+SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".heartgold", ".claude"}
 
 
 def sh(cmd, cwd, timeout=600):
@@ -24,7 +24,7 @@ class Run:
         self.repo = pathlib.Path(repo).resolve()
         self.goal, self.model, self.budget = goal, model, budget
         self.n_cand, self.adv_rounds = candidates, adv_rounds
-        self.state = self.repo / ".repoforge"
+        self.state = self.repo / ".heartgold"
         self.state.mkdir(exist_ok=True)
         (self.state / ".gitignore").write_text("*\n")
         self.ledger = self.state / "ledger.jsonl"
@@ -36,7 +36,7 @@ class Run:
         rec = dict(t=round(time.time() - self.t0, 1), event=event, cost=round(COST["usd"], 3), **kw)
         with self.ledger.open("a") as f:
             f.write(json.dumps(rec, default=str) + "\n")
-        print(f"[repoforge {rec['t']:>6}s ${rec['cost']:.2f}] {event} " +
+        print(f"[heartgold {rec['t']:>6}s ${rec['cost']:.2f}] {event} " +
               " ".join(f"{k}={v}" for k, v in kw.items() if k not in ("detail",))[:300], flush=True)
 
     def left(self):
@@ -76,8 +76,8 @@ class Run:
         (gitdir / "info").mkdir(exist_ok=True)
         excl = gitdir / "info" / "exclude"
         cur = excl.read_text() if excl.exists() else ""
-        excl.write_text(cur + "".join(f"{x}\n" for x in ("__pycache__/", "*.pyc", ".repoforge/", ".pytest_cache/") if x not in cur))
-        sh("git add -A && git -c user.email=rf@rf -c user.name=repoforge commit -qm 'repoforge: baseline' --allow-empty", self.repo)
+        excl.write_text(cur + "".join(f"{x}\n" for x in ("__pycache__/", "*.pyc", ".heartgold/", ".pytest_cache/") if x not in cur))
+        sh("git add -A && git -c user.email=rf@rf -c user.name=heartgold commit -qm 'heartgold: baseline' --allow-empty", self.repo)
         self.base = sh("git rev-parse HEAD", self.repo)[1].strip()
         self.log("map", test_cmd=self.test_cmd, bench_cmd=self.bench_cmd, files=len(files), orig_tests=self.orig_tests)
 
@@ -122,7 +122,7 @@ class Run:
         return path
 
     def commit(self, wt, msg):
-        sh(f"git add -A && git -c user.email=rf@rf -c user.name=repoforge commit -qm {json.dumps(msg)}", wt)
+        sh(f"git add -A && git -c user.email=rf@rf -c user.name=heartgold commit -qm {json.dumps(msg)}", wt)
         return sh("git rev-parse HEAD", wt)[1].strip()
 
     # ---------- phases
@@ -156,10 +156,10 @@ class Run:
             f"Implement the goal in this repository. {style} {perf_hint}\n"
             f"Done means ALL of these pass: {self.test_cmd}\n"
             f"({SPEC_TEST} encodes the researched requirements. If you are CERTAIN a test there contradicts the goal "
-            "text, leave it failing and explain why in one line in REPOFORGE_NOTES.md; never edit it to make it pass. "
+            "text, leave it failing and explain why in one line in HEARTGOLD_NOTES.md; never edit it to make it pass. "
             "Never edit or delete the pre-existing tests.) Keep public function/class signatures compatible.",
             wt, self.model, self.slice(0.22), timeout=1500)
-        self.commit(wt, f"repoforge candidate {i}")
+        self.commit(wt, f"heartgold candidate {i}")
         g = self.gate(wt)
         self.log("candidate", i=i, key=g["key"], orig_ok=g["orig"]["ok"], spec_fail=g["spec"]["failing"], bench=g["bench"])
         return wt, g
@@ -197,7 +197,7 @@ class Run:
             f"\n\nTest output tail:\n{g['spec'].get('tail', '')[-1500:]}\n{g['adv'].get('tail', '')[-1500:]}\n"
             f"Fix the CODE so they pass (do not edit tests). Run: {self.test_cmd}",
             wt, self.model, self.slice(0.08), timeout=1200)
-        self.commit(wt, "repoforge fix")
+        self.commit(wt, "heartgold fix")
         return self.gate(wt)
 
     def adversarial(self, wt, reqs, rnd):
@@ -211,7 +211,7 @@ class Run:
             " with up to 8 NEW tests, each with exact expected values justified by the goal or spec (cite in a comment). "
             f"Run them: {self.test_cmd} {ADV_TEST}. Keep only tests you are confident are correct. Do not modify any non-test file.",
             wt, self.model, self.slice(0.07))
-        self.commit(wt, f"repoforge adversarial round {rnd}")
+        self.commit(wt, f"heartgold adversarial round {rnd}")
         g = self.gate(wt)
         self.log("adversarial", round=rnd, adv_fail=g["adv"]["failing"])
         return g
@@ -225,7 +225,7 @@ class Run:
             "Think about algorithmic complexity first (right data structure, avoiding repeated work, early exits, "
             "pruning), then constant factors. All tests must still pass: " + self.test_cmd + ". Do not edit tests.",
             wt, self.model, self.slice(0.1), timeout=1200)
-        self.commit(wt, "repoforge optimize")
+        self.commit(wt, "heartgold optimize")
         g2 = self.gate(wt)
         better = g2["key"][:3] >= g["key"][:3] and g2["orig"]["ok"] and g2["bench"] < g["bench"] * 0.97
         self.log("optimize", before=g["bench"], after=g2["bench"], kept=better)
@@ -249,7 +249,7 @@ class Run:
         common = set.intersection(*[set(g["spec"]["failing"]) for _, g in cands]) if cands else set()
         if common:
             drop = self.judge(cands[0][0], sorted(common), SPEC_TEST)
-            cands = [(wt, (self.drop_tests(wt, SPEC_TEST, drop), self.commit(wt, "repoforge: drop wrong spec tests"), self.gate(wt))[2])
+            cands = [(wt, (self.drop_tests(wt, SPEC_TEST, drop), self.commit(wt, "heartgold: drop wrong spec tests"), self.gate(wt))[2])
                      for wt, g in cands]
         cands.sort(key=lambda c: c[1]["key"], reverse=True)
         wt, g = cands[0]
@@ -268,7 +268,7 @@ class Run:
             if g_adv["adv"]["failing"]:
                 drop = self.judge(wt, g_adv["adv"]["failing"], ADV_TEST)
                 self.drop_tests(wt, ADV_TEST, drop)
-                self.commit(wt, "repoforge: drop wrong adversarial tests")
+                self.commit(wt, "heartgold: drop wrong adversarial tests")
                 g_adv = self.gate(wt)
                 if g_adv["adv"]["failing"]:
                     g_adv = self.fix(wt, g_adv, "A hostile reviewer found these bugs.")
@@ -285,18 +285,18 @@ class Run:
         if keep:
             code, out = sh(f"git merge -q --ff-only {final}", self.repo)
             if code != 0:
-                code, out = sh(f"git checkout -q {final} -- . && git -c user.email=rf@rf -c user.name=repoforge commit -qam 'repoforge: apply winner'", self.repo)
+                code, out = sh(f"git checkout -q {final} -- . && git -c user.email=rf@rf -c user.name=heartgold commit -qam 'heartgold: apply winner'", self.repo)
             if code != 0:
                 keep = False
                 self.log("merge_failed", detail=out[-500:])
         sh(f"git worktree remove --force {shlex.quote(str(wt))}", self.repo)
         self.log("done", kept=keep, key=g["key"], bench=g["bench"])
         self.report(reqs, base, g, keep)
-        print(f"REPOFORGE_COST_USD={COST['usd']:.4f}")
+        print(f"HEARTGOLD_COST_USD={COST['usd']:.4f}")
         return keep
 
     def report(self, reqs, base, g, keep):
-        lines = [f"# repoforge report — {datetime.datetime.now():%Y-%m-%d %H:%M}", "", f"Goal: {self.goal.strip()}", "",
+        lines = [f"# heartgold report — {datetime.datetime.now():%Y-%m-%d %H:%M}", "", f"Goal: {self.goal.strip()}", "",
                  f"Result: {'merged' if keep else 'NOT merged'} · cost ${COST['usd']:.2f}", "",
                  f"- original tests: {'pass' if g['orig']['ok'] else 'FAIL'}",
                  f"- spec tests passed: {g['spec']['passed']} · adversarial tests passed: {g['adv']['passed']}",

@@ -1,4 +1,4 @@
-# repoforge — implementation plan
+# heartgold — implementation plan
 
 Goal: a CLI that takes any git repo plus a goal, researches the web for how to do it
 well, implements candidate changes in isolation, and keeps only what is proven better.
@@ -29,13 +29,13 @@ copy fixture → temp dir → `git init` → run tool → score:
 Composite = 70% hidden + 20% speed (capped 10x, log scale) + 10% clean (no regressions).
 Results → `bench/results/<tool>-<timestamp>.json` and `bench/LEADERBOARD.md`.
 
-Adapters in `bench/adapters/`: `noop` (baseline), `repoforge`, `autoresearch`
+Adapters in `bench/adapters/`: `noop` (baseline), `heartgold`, `autoresearch`
 (uditgoenka skill via `claude -p`), `evolution-kernel`, `plain-claude` (one
 `claude -p` with the goal: the strong control every loop must beat).
 
-## 2. repoforge v1 — `repoforge/`
+## 2. heartgold v1 — `heartgold/`
 
-Pipeline per run, each phase writes to `.repoforge/` in the target repo:
+Pipeline per run, each phase writes to `.heartgold/` in the target repo:
 1. **map**: detect language, test cmd, bench cmd; run baseline; write `map.json`.
 2. **research**: turn goal + repo map into 3–5 queries; `searchify passages` +
    GitHub search for similar code; save sources with verbatim quotes.
@@ -56,17 +56,17 @@ Repeat cycles until no proposal improves the score or the budget runs out.
 ## 3. Loop (until it wins)
 
 Each iteration:
-1. run bench for repoforge (+ competitors when they change)
+1. run bench for heartgold (+ competitors when they change)
 2. read the failures (which hidden tests, why)
 3. research round with `/searchify`: how do others fix this weakness
-4. change repoforge (not the fixtures; fixtures are frozen once v1 lands, new
+4. change heartgold (not the fixtures; fixtures are frozen once v1 lands, new
    fixtures may be added but every tool is re-run on them)
 5. re-run the bench, update LEADERBOARD.md, commit
 
-Stop when repoforge leads every metric over every competitor on the full
+Stop when heartgold leads every metric over every competitor on the full
 fixture set, across 2 consecutive runs (to rule out luck).
 
 ## Rules
 - Hidden tests are never readable by any tool (copied in only after the run).
 - Same model (sonnet) and same budget for every tool.
-- Never tune repoforge on the hidden tests' content; only on failure categories.
+- Never tune heartgold on the hidden tests' content; only on failure categories.

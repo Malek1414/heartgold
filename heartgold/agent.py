@@ -1,5 +1,5 @@
 """Headless coding-agent calls (claude -p) with cost tracking."""
-import json, subprocess
+import json, os, subprocess, sys
 
 COST = {"usd": 0.0}
 
@@ -25,6 +25,11 @@ def claude(prompt, cwd, model="sonnet", budget=1.0, timeout=900, tools=None):
     except json.JSONDecodeError:
         return out
     COST["usd"] += data.get("total_cost_usd", 0.0) or 0.0
+    if data.get("api_error_status") == 429 or "hit your session limit" in (data.get("result") or ""):
+        # usage limit: any result from here on would be garbage, so stop the whole run at once
+        print(f"HEARTGOLD_RATE_LIMITED {data.get('result', '')}\nHEARTGOLD_COST_USD={COST['usd']:.4f}", flush=True)
+        sys.stdout.flush()
+        os._exit(3)
     return data.get("result", "") or ""
 
 

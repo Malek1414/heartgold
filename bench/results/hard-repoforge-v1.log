@@ -1,0 +1,6 @@
+cron       score=0.996 hidden=267/268 visible= 1/1 speed=None cost=$1.36 694s
+gitignore  score=1.000 hidden=930/930 visible= 1/1 speed=None cost=$1.677 800s
+pep440     score=1.000 hidden=643/643 visible= 1/1 speed=None cost=$1.587 748s
+robots     score=0.100 hidden=537/641 visible= 1/1 speed=None cost=$0.326 190s
+urljoin    score=0.100 hidden= 22/53 visible= 1/1 speed=None cost=$0.174 131s
+TOTAL repoforge: 0.639  -> /Users/malekhassan/Desktop/repoforge/bench/results/hard-repoforge-20261103-202444.json

@@ -1,0 +1,6 @@
+cron       score=0.912 hidden=243/268 visible= 1/1 speed=None cost=$0.708 298s
+gitignore  score=1.000 hidden=930/930 visible= 1/1 speed=None cost=$0.813 438s CONTAMINATED
+pep440     score=1.000 hidden=643/643 visible= 1/1 speed=None cost=$0.612 278s
+robots     score=1.000 hidden=641/641 visible= 1/1 speed=None cost=$0.662 335s
+urljoin    score=1.000 hidden= 53/53 visible= 1/1 speed=None cost=$0.417 188s
+TOTAL autoresearch: 0.982  -> /Users/malekhassan/Desktop/repoforge/bench/results/hard-autoresearch-20261103-202013.json

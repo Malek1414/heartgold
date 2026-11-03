@@ -1,13 +1,13 @@
 """Benchmark runner: run one tool on every fixture under the same budget and score it.
 
-Usage: python bench/run.py --tool repoforge [--fixtures semver lru] [--budget-usd 3] [--jobs 3]
+Usage: python bench/run.py --tool heartgold [--fixtures semver lru] [--budget-usd 3] [--jobs 3]
 """
 import argparse, concurrent.futures as cf, datetime, json, math, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 FIX = ROOT / "bench" / "fixtures"
 PY = str(ROOT / ".venv" / "bin" / "python")
-COMPETITORS = pathlib.Path(os.environ.get("REPOFORGE_COMPETITORS", ROOT / "bench" / "competitors"))
+COMPETITORS = pathlib.Path(os.environ.get("HEARTGOLD_COMPETITORS", ROOT / "bench" / "competitors"))
 BENCH_TIMEOUT = 60
 MODEL = os.environ.get("BENCH_MODEL", "sonnet")
 # Same isolation for every tool: no user plugins/hooks/MCP, only the project's own settings.
@@ -15,6 +15,23 @@ CLAUDE = ["claude", "-p", "--model", MODEL, "--dangerously-skip-permissions",
           "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence",
           "--output-format", "stream-json", "--verbose"]
 TEST_CMD = f"{PY} -m pytest -q -p no:cacheprovider --timeout=30 tests"
+
+
+SANDBOX = f"""(version 1)
+(allow default)
+(deny file-read* (subpath "{ROOT}/bench/fixtures") (subpath "{ROOT}/bench/reference")
+                 (subpath "{ROOT}/bench/results") (regex #"/_hidden_tests(/|$)") (regex #"_hidden_check\\.py$")
+                 (regex #"_bench_transcript\\.txt$"))
+"""
+
+
+def sandboxed(cmd):
+    """Wrap a tool command so it cannot read hidden tests, references or other runs' results."""
+    if sys.platform != "darwin":
+        return cmd
+    if isinstance(cmd, str):
+        return ["sandbox-exec", "-p", SANDBOX, "/bin/sh", "-c", cmd]
+    return ["sandbox-exec", "-p", SANDBOX] + list(cmd)
 
 
 def sh(cmd, cwd, timeout, env=None):
@@ -54,7 +71,7 @@ def bench_time(cwd):
 # ---- adapters: each runs the tool inside `work` and returns (cost_usd, transcript)
 
 def claude_run(prompt, work, budget, timeout):
-    code, out, _ = sh(CLAUDE + ["--max-budget-usd", str(budget), prompt], work, timeout)
+    code, out, _ = sh(sandboxed(CLAUDE + ["--max-budget-usd", str(budget), prompt]), work, timeout)
     cost = 0.0
     for line in out.splitlines():
         if '"type":"result"' in line.replace(" ", ""):
@@ -86,19 +103,19 @@ def adapter_autoresearch(work, goal, budget, timeout):
     return claude_run(prompt, work, budget, timeout)
 
 
-def adapter_repoforge(work, goal, budget, timeout):
-    code, out, _ = sh([PY, "-m", "repoforge", "run", ".", "--goal-file", "goal.md",
-                       "--budget-usd", str(budget), "--model", MODEL], work, timeout,
+def adapter_heartgold(work, goal, budget, timeout):
+    code, out, _ = sh(sandboxed([PY, "-m", "heartgold", "run", ".", "--goal-file", "goal.md",
+                       "--budget-usd", str(budget), "--model", MODEL]), work, timeout,
                       env={"PYTHONPATH": str(ROOT)})
     cost = 0.0
-    m = re.findall(r"REPOFORGE_COST_USD=([\d.]+)", out)
+    m = re.findall(r"HEARTGOLD_COST_USD=([\d.]+)", out)
     if m:
         cost = float(m[-1])
     return cost, out
 
 
 ADAPTERS = {"noop": adapter_noop, "plain-claude": adapter_plain_claude,
-            "autoresearch": adapter_autoresearch, "repoforge": adapter_repoforge}
+            "autoresearch": adapter_autoresearch, "heartgold": adapter_heartgold}
 
 
 def run_fixture(tool, name, budget, timeout):
@@ -111,7 +128,8 @@ def run_fixture(tool, name, budget, timeout):
     t0 = time.time()
     cost, transcript = ADAPTERS[tool](str(work), goal, budget, timeout)
     elapsed = time.time() - t0
-    contaminated = bool(re.search(r"repoforge/bench/(fixtures/[^/]+/hidden|reference)", transcript))
+    limited = bool(re.search(r"hit your session limit|\"api_error_status\":\s*429|HEARTGOLD_RATE_LIMITED", transcript))
+    contaminated = bool(re.search(r"heartgold/bench/(fixtures/[^/]+/hidden|reference)", transcript))
     # restore the original visible tests (a tool may not "pass" by editing them), then add hidden tests
     for f in (fx / "repo" / "tests").iterdir():
         shutil.copy(f, work / "tests" / f.name)
@@ -136,7 +154,7 @@ def run_fixture(tool, name, budget, timeout):
     res = dict(fixture=name, hidden=round(hidden, 3), hidden_raw=f"{hid_p}/{hid_t}",
                visible=f"{vis_p}/{vis_t}", speed=None if speed is None else round(speed, 3),
                base_time=base_time, after_time=after_time, cost_usd=round(cost, 3),
-               seconds=round(elapsed), contaminated=contaminated, score=round(score, 3), work=str(work))
+               seconds=round(elapsed), contaminated=contaminated, invalid=limited, score=round(score, 3), work=str(work))
     (work / "_bench_transcript.txt").write_text(transcript)
     return res
 
@@ -149,6 +167,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--jobs", type=int, default=3)
     ap.add_argument("--suite", default="hard", help="easy | hard | all")
+    ap.add_argument("--label", help="name in the leaderboard (default: tool)")
     a = ap.parse_args()
     def suite(p):
         m = p / "meta.json"
@@ -156,16 +175,17 @@ def main():
     names = a.fixtures or sorted(p.name for p in FIX.iterdir() if p.is_dir() and a.suite in ("all", suite(p)))
     with cf.ThreadPoolExecutor(a.jobs) as ex:
         results = list(ex.map(lambda n: run_fixture(a.tool, n, a.budget_usd, a.timeout), names))
-    total = sum(r["score"] for r in results) / len(results)
-    out = dict(tool=a.tool, suite=a.suite, model=MODEL, budget_usd=a.budget_usd, when=datetime.datetime.now().isoformat(timespec="seconds"),
+    valid = [r for r in results if not r.get("invalid")]
+    total = sum(r["score"] for r in valid) / len(valid) if valid else 0.0
+    out = dict(tool=a.tool, label=a.label or a.tool, suite=a.suite, model=MODEL, budget_usd=a.budget_usd, when=datetime.datetime.now().isoformat(timespec="seconds"),
                score=round(total, 3), results=results)
     rd = ROOT / "bench" / "results"
     rd.mkdir(exist_ok=True)
-    path = rd / f"{a.suite}-{a.tool}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"
+    path = rd / f"{a.suite}-{a.label or a.tool}-{datetime.datetime.now():%Y%m%d-%H%M%S}.json"
     path.write_text(json.dumps(out, indent=2))
     for r in results:
         print(f"{r['fixture']:10} score={r['score']:.3f} hidden={r['hidden_raw']:>6} visible={r['visible']:>4} "
-              f"speed={r['speed']} cost=${r['cost_usd']} {r['seconds']}s{' CONTAMINATED' if r['contaminated'] else ''}")
+              f"speed={r['speed']} cost=${r['cost_usd']} {r['seconds']}s{' CONTAMINATED' if r['contaminated'] else ''}{' INVALID(usage limit)' if r.get('invalid') else ''}")
     print(f"TOTAL {a.tool}: {total:.3f}  -> {path}")
 
 

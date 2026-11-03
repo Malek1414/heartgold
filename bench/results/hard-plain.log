@@ -1,0 +1,6 @@
+cron       score=0.912 hidden=243/268 visible= 1/1 speed=None cost=$0.239 127s
+gitignore  score=1.000 hidden=930/930 visible= 1/1 speed=None cost=$0.833 394s
+pep440     score=1.000 hidden=643/643 visible= 1/1 speed=None cost=$0.356 160s
+robots     score=1.000 hidden=641/641 visible= 1/1 speed=None cost=$0.407 216s
+urljoin    score=1.000 hidden= 53/53 visible= 1/1 speed=None cost=$0.219 109s
+TOTAL plain-claude: 0.982  -> /Users/malekhassan/Desktop/repoforge/bench/results/hard-plain-claude-20261103-201633.json
