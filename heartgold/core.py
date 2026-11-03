@@ -404,32 +404,38 @@ class SpeedRun(Run):
 
     def oracle(self):
         """Probe expressions + the ORIGINAL code's outputs for them, plus an independent benchmark.
-        Two separate agent calls (each retried once), so one failing does not lose the other."""
+        Two agent calls in parallel, each capped at 5 minutes; the whole phase gets at most 20% of the time."""
         from .diff import run_probe
         probe, alt = self.state / "probe.json", self.state / "bench_alt.py"
         wt = self.worktree("oracle")
         mods = ", ".join(self.py_modules)
-        for attempt in range(2):
-            if probe.exists():
-                break
+        cap = max(180, min(300, int(self.time_limit * 0.2)))
+
+        def make_probe():
             claude(
                 f"Goal:\n{self.goal}\n\nModules: {mods}\n\nWrite {probe} as JSON {{\"setup\": \"<import lines>\", "
                 "\"exprs\": [...]}} with 150-300 Python expressions calling the public API on varied inputs: edge cases "
-                "(empty, size 0/1, duplicates, unicode, extreme values) and random medium inputs built deterministically "
-                "inline (e.g. random.Random(seed) inside the expression). EACH expression must finish in well under 1 "
-                "second on the CURRENT (slow) code - keep sizes small - and return a plain comparable value. Do it by "
-                "writing a short generator script in /tmp and running it. Then check the JSON loads. Do not modify the repo.",
-                str(wt), self.model, self.slice(0.05), timeout=900)
-        for attempt in range(2):
-            if alt.exists():
-                break
+                "(empty, size 0/1, duplicates, unicode, extreme values) and random small/medium inputs built "
+                "deterministically inline (e.g. random.Random(seed) inside the expression). EACH expression must finish "
+                "in well under 0.5 s on the CURRENT slow code - keep sizes small - and return a plain comparable value. "
+                "Write a short generator script in /tmp, run it once, check the JSON loads, and stop. Do not modify the repo.",
+                str(wt), self.model, self.slice(0.04), timeout=cap)
+
+        def make_alt():
             claude(
-                f"Goal:\n{self.goal}\n\nModules: {mods}\n\nRead bench.py, then write {alt}: an independent benchmark of "
-                "the same public API on a DIFFERENT input distribution than bench.py (other sizes, alphabets/value ranges, "
-                "adversarial worst cases such as tiny alphabets or many duplicates), so a speedup that only works for "
-                "bench.py's inputs is caught. It must import from src the same way bench.py does, print only the elapsed "
-                "seconds on its last line, and take 1-10 s on the CURRENT code (run it to check). Do not modify the repo.",
-                str(wt), self.model, self.slice(0.04), timeout=900)
+                f"Goal:\n{self.goal}\n\nRead bench.py, then write EXACTLY {alt}: an independent benchmark of the same "
+                "public API on a DIFFERENT input distribution than bench.py (other sizes, alphabets/value ranges, worst "
+                "cases such as tiny alphabets or many duplicates). Import from src the way bench.py does (add the repo "
+                "root to sys.path), print only the elapsed seconds on the last line. Size it so it takes 0.5-4 s on the "
+                "CURRENT slow code: estimate from bench.py's timing, run it at most twice, then stop. Do not modify the repo.",
+                str(wt), self.model, self.slice(0.03), timeout=cap)
+
+        with ThreadPoolExecutor(2) as ex:
+            list(ex.map(lambda f: f(), (make_probe, make_alt)))
+        if not alt.exists():
+            stray = sorted(self.state.glob("bench_alt*.py")) + sorted(wt.glob("bench_alt*.py"))
+            if stray:
+                shutil.copy(stray[0], alt)
         expected = None
         if probe.exists():
             try:
@@ -500,7 +506,7 @@ class SpeedRun(Run):
     def bench_file(self, wt, fname):
         best = None
         for _ in range(3):
-            code, out = sh(f"{sys.executable} {fname}", wt, 300)
+            code, out = sh(f"{sys.executable} {fname}", wt, 90)
             try:
                 v = float(out.strip().splitlines()[-1]) if code == 0 else float("inf")
             except (ValueError, IndexError):
