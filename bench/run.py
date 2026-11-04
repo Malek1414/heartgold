@@ -38,7 +38,7 @@ def sh(cmd, cwd, timeout, env=None):
     t = time.time()
     try:
         p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str), capture_output=True, text=True,
-                           timeout=timeout, env={**os.environ, **(env or {})})
+                           timeout=timeout, env={**os.environ, **(env or {})}, stdin=subprocess.DEVNULL)
         return p.returncode, p.stdout + p.stderr, time.time() - t
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
