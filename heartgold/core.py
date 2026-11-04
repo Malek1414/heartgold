@@ -493,6 +493,8 @@ class SpeedRun(Run):
 
     def objective(self, m):
         b, a = m["bench"], m.get("alt")
+        if a and b < 0.02:
+            return a  # the repo benchmark is too small to time reliably; trust the larger independent one
         return (b * a) ** 0.5 if a else b
 
     def more_ideas(self, ref, history):
@@ -529,7 +531,7 @@ class SpeedRun(Run):
             "further LARGE speedup, grounded in this research where possible (say which source). Retrying a rejected "
             "idea is fine if you can say what went wrong last time and how to do it better. Do not modify files. "
             'Reply only with JSON: {"ideas": [{"name": "...", "how": "...", "source": 0}]}',
-            str(wt), self.model, self.slice(0.04), tools=["Read", "Grep", "Glob", "Bash"])
+            str(wt), self.model, self.slice(0.07), tools=["Read", "Grep", "Glob"])
         self.drop_worktree(wt)
         ideas = (extract_json(reply, {}) or {}).get("ideas") or []
         for it in ideas:
@@ -579,7 +581,7 @@ class SpeedRun(Run):
             "Results must stay IDENTICAL to the current code for every input (heartgold checks this on hundreds of "
             f"hidden probe inputs). All tests must pass: {self.test_cmd}. Do not edit tests or benchmarks, do not "
             "special-case the benchmark's inputs, no caching across calls, no hard-coded answers.",
-            wt, self.model, self.slice(0.12), timeout=1500)
+            wt, self.model, self.slice(0.1), timeout=1500)
         self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
         m = self.measure(wt, self.expected)
         self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"])
@@ -593,19 +595,25 @@ class SpeedRun(Run):
         self.log("speed.baseline", bench=base["bench"], alt=base["alt"])
         ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
         best, best_ref, history, queue = base, self.base, [], list(ideas)
-        rnd, self.stale = 0, 0
+        rnd, self.stale, self.restack = 0, 0, []
         deadline = self.t0 + self.time_limit
         while queue and self.left() > self.budget * 0.15 and time.time() + 420 < deadline:
             rnd += 1
-            batch = [queue.pop(0) for _ in range(min(3, len(queue)))]
+            width = 3 if rnd == 1 else 2
+            batch = [queue.pop(0) for _ in range(min(width, len(queue)))]
             with ThreadPoolExecutor(len(batch)) as ex:
                 results = list(ex.map(lambda a: self.attempt(a[0], best_ref, a[1], best, history), enumerate(batch)))
             winner = None
             for (wt, m), idea in zip(results, batch):
                 # must be faster on the combined (geometric-mean) objective and not slower on either benchmark
+                tiny = best["bench"] < 0.02 and best.get("alt")
                 faster = (m["ok"] and self.objective(m) < self.objective(best) * 0.97
-                          and m["bench"] < best["bench"] * 1.03
+                          and (tiny or m["bench"] < best["bench"] * 1.03)
                           and (best.get("alt") is None or m["alt"] is None or m["alt"] < best["alt"] * 1.03))
+                if m["ok"] and not faster and idea.get("restacked") is None:
+                    self.restack.append(dict(idea, restacked=True,
+                                             how=idea.get("how", "") + " (retry ON TOP of the current best version; "
+                                             "it was correct but not faster on the older base)"))
                 history.append(f"{idea.get('name')}: {'kept' if faster else 'rejected'} "
                                f"(bench {m['bench']:.4f}, identical={m['same']}, tests={m['tests']})")
                 if faster and (winner is None or self.objective(m) < self.objective(winner[1])):
@@ -622,6 +630,12 @@ class SpeedRun(Run):
             if (self.stale or not queue) and self.left() > self.budget * 0.2:
                 # no improvement (or out of ideas): a new web + GitHub research round seeds the next round
                 queue = self.more_ideas(best_ref, history) + queue
+            if winner and self.restack:
+                # a new best exists: ideas that were correct but lost on the old base get a second chance on it
+                queue = self.restack + queue
+                self.restack = []
+            if not queue and self.restack:
+                queue, self.restack = self.restack, []
         keep = best_ref != self.base
         self.log("done", kept=keep, base=base["bench"], best=best["bench"], speedup=round(base["bench"] / best["bench"], 2))
         (self.state / "report.md").write_text(

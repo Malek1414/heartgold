@@ -10,6 +10,7 @@ DQ = read hidden test data (scored 0). '-' = no valid run yet.
 
 | tool | score | fuzzymatch | lcs | nqueens | primes | cost | time |
 |---|---|---|---|---|---|---|---|
+| heartgold-v4 | **1.156** | 0.564 | 1.403 | 0.899 | 1.758 | $8.25 | 46m |
 | plain-claude | **1.084** | 0.559 | 0.985 | 1.013 | 1.779 | $2.07 | 21m |
 | heartgold-v3 | **1.081** | 0.604 | 1.569 | 1.014 | 1.135 | $8.05 | 74m |
 | autoresearch | **0.820** | 0.399 | 1.480 | 1.013 | 0.387 | $3.55 | 37m |
