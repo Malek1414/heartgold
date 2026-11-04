@@ -770,8 +770,8 @@ class SpeedRun(Run):
             self.stale = 0 if winner else self.stale + 1
             if self.stale >= 3:
                 break  # three rounds without progress, even after fresh research
-            if (self.stale or not queue) and not self.polished:
-                # algorithmic ideas stalled: one CPython-level polish pass on the current winner first
+            if (winner or self.stale or not queue) and not self.polished:
+                # right after the first win (time runs out before budget does): polish the winner's hot path
                 self.polished = True
                 queue = [POLISH] + queue
             if (self.stale or not queue) and self.left() > self.budget * 0.2:
