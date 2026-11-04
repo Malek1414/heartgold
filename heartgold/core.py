@@ -377,6 +377,15 @@ def ideas_of(reply):
     return [d for d in data if isinstance(d, dict) and d.get("name")] if isinstance(data, list) else []
 
 
+POLISH = dict(name="CPython micro-optimization polish of the hot path", how=(
+    "Keep the current algorithm; make its hot path cheaper for the CPython interpreter. Profile first (cProfile, "
+    "then timeit on the hot function). Typical wins: move recursive/hot helpers to module level and pass state as "
+    "arguments (local/argument access beats closure cells and attribute lookups), bind globals and methods to locals "
+    "in tight loops, prefer cheaper operations with identical results (x ^ m instead of m & ~x when x is a subset "
+    "of m, `-=` on a known bit), drop redundant masking/conversions, use built-ins that run in C, and avoid "
+    "per-iteration allocations. Try each change in isolation with timeit and keep only what is measurably faster."))
+
+
 SPEED_WORDS = re.compile(r"\b(fast|faster|speed|performance|latency|throughput|optimi[sz]e)\b", re.I)
 
 
@@ -722,6 +731,7 @@ class SpeedRun(Run):
         ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
         best, best_ref, history, queue = base, self.base, [], list(ideas)
         rnd, self.stale, self.restack, self.reimpl = 0, 0, [], []
+        self.polished = False
         self.base_m, self.adv_benches, self.adv_base = base, [], {}
         deadline = self.t0 + self.time_limit
         while queue and self.left() > self.budget * 0.15 and time.time() + 420 < deadline:
@@ -760,6 +770,10 @@ class SpeedRun(Run):
             self.stale = 0 if winner else self.stale + 1
             if self.stale >= 3:
                 break  # three rounds without progress, even after fresh research
+            if (self.stale or not queue) and not self.polished:
+                # algorithmic ideas stalled: one CPython-level polish pass on the current winner first
+                self.polished = True
+                queue = [POLISH] + queue
             if (self.stale or not queue) and self.left() > self.budget * 0.2:
                 # no improvement (or out of ideas): a new web + GitHub research round seeds the next round
                 queue = self.more_ideas(best_ref, history) + queue
