@@ -1,0 +1,6 @@
+fuzzymatch score=0.298 hidden= 40/40 visible= 1/1 speed=0.298 cost=$0.27 164s
+lcs        score=0.863 hidden=124/124 visible= 1/1 speed=0.863 cost=$0.832 560s
+nqueens    score=0.877 hidden= 12/12 visible= 1/1 speed=0.877 cost=$0.272 276s
+primes     score=1.753 hidden= 41/41 visible= 1/1 speed=1.753 cost=$0.184 93s
+TOTAL plain-claude: 0.948  -> /Users/malekhassan/Desktop/heartgold/bench/results/speed-plain-claude-20261104-213349.json
+bench/results/speed-plain-claude-20261104-213349.json 0.901 [('fuzzymatch', '40/40'), ('lcs', '124/124'), ('nqueens', '12/12'), ('primes', '41/41')]

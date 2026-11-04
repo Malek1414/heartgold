@@ -33,5 +33,24 @@ for suite in ("speed", "hard2", "hard", "easy"):
         secs = sum(r["seconds"] for r in rs.values())
         out.append(f"| {lab} | **{total(rs):.3f}** | " + " | ".join(cells) + f" | ${cost:.2f} | {secs // 60}m |")
     out.append("")
+# averages over repeated runs (single runs swing by about +-0.2 on the speed suite)
+import statistics as st
+groups = {"heartgold (v10-v12)": "speed-heartgold-v1[0-2]-*.json", "plain-claude": "speed-plain-claude-*.json"}
+avg_rows = []
+for name, pat in groups.items():
+    runs = [json.loads(p.read_text()) for p in sorted((ROOT / "results").glob(pat))]
+    runs = [d for d in runs if not any(r.get("invalid") for r in d["results"])]
+    if runs:
+        fx = sorted({r["fixture"] for d in runs for r in d["results"]})
+        means = {f: st.mean(r["score"] for d in runs for r in d["results"] if r["fixture"] == f) for f in fx}
+        avg_rows.append((name, len(runs), st.mean(d["score"] for d in runs), means, [d["score"] for d in runs]))
+if avg_rows:
+    fx = sorted(avg_rows[0][3])
+    out += ["## speed suite - average over repeated runs", "", "| tool | runs | mean | " + " | ".join(fx) + " | per-run totals |",
+            "|---|---|---|" + "---|" * len(fx) + "---|"]
+    for name, n, m, means, totals in sorted(avg_rows, key=lambda x: -x[2]):
+        out.append(f"| {name} | {n} | **{m:.3f}** | " + " | ".join(f"{means[f]:.3f}" for f in fx) +
+                   " | " + ", ".join(f"{t:.3f}" for t in totals) + " |")
+    out.append("")
 (ROOT / "LEADERBOARD.md").write_text("\n".join(out) + "\n")
 print("\n".join(out))
