@@ -428,6 +428,8 @@ class SpeedRun(Run):
                 "(empty, size 0/1, duplicates, unicode, extreme values) and random small/medium inputs built "
                 "deterministically inline (e.g. random.Random(seed) inside the expression). EACH expression must finish "
                 "in well under 0.5 s on the CURRENT slow code - keep sizes small - and return a plain comparable value. "
+                "The setup must import with paths RELATIVE to the repository root (e.g. `from src.x import f`); never "
+                "put absolute paths or sys.path changes in it. "
                 "Write a short generator script in /tmp, run it once, check the JSON loads, and stop. Do not modify the repo.",
                 str(wt), self.model, self.slice(0.08), timeout=cap)
 
@@ -474,6 +476,14 @@ class SpeedRun(Run):
         """The probe's import line must work against the real layout (e.g. `src.x`, not `x`): try it, and
         if it fails try the module paths heartgold found in the repo, then ask the agent as a last resort."""
         data = json.loads(probe.read_text())
+        # an absolute sys.path entry points at a temporary worktree: it is deleted later (probe crashes) and,
+        # while it exists, it would import the ORIGINAL code instead of the candidate's (check passes vacuously)
+        cleaned = re.sub(r"sys\.path\.(?:insert\(\s*\d+\s*,|append\()\s*['\"]/[^'\"]*['\"]\s*\)\s*;?", "", data["setup"])
+        cleaned = re.sub(r"(?m)^\s*import sys\s*;?\s*$", "", cleaned).strip(" ;\n") or data["setup"]
+        if cleaned != data["setup"]:
+            self.log("speed.probe_setup_abs_path_removed", before=data["setup"][:200], after=cleaned[:200])
+            data["setup"] = cleaned
+            probe.write_text(json.dumps(data))
 
         def works(setup):
             code, _ = sh(f"{sys.executable} -c {shlex.quote(setup)}", wt, 60)
