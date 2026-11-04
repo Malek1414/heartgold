@@ -7,6 +7,21 @@
 <p align="center">Point it at a repo and a goal. It researches how the best people solve that problem, tries several
 implementations in isolated git worktrees, and keeps only the changes it can prove are better.</p>
 
+<p align="center">
+  <i>"In the streets of Philly where n—— don't even get to turn old<br>
+  My heart pumping 'til it turn gold"</i><br>
+  — Meek Mill, <i>Classic Freestyle Pt. 2</i>, as heard on Knxwledge's <b>sameolemeek_</b>
+</p>
+
+<p align="center">
+  🎧 Listen: <a href="https://knxwledge.bandcamp.com/track/sameolemeek">Bandcamp</a> ·
+  <a href="https://open.spotify.com/track/0CUJEDKDLddR0cojCVsXN1">Spotify</a> ·
+  <a href="https://genius.com/Knxwledge-sameolemeek-lyrics">Lyrics</a>
+</p>
+
+<p align="center">The name and the golden heart come from this track: a heart that keeps pumping until it turns gold.
+heartgold does the same to a codebase: it keeps beating, round after round, until the code is gold.</p>
+
 ---
 
 ## What it does
