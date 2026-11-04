@@ -435,7 +435,9 @@ class SpeedRun(Run):
             claude(
                 f"Goal:\n{self.goal}\n\nRead bench.py, then write EXACTLY {alt}: an independent benchmark of the same "
                 "public API on a DIFFERENT input distribution than bench.py (other sizes, alphabets/value ranges, worst "
-                "cases such as tiny alphabets or many duplicates). Import from src the way bench.py does (add the repo "
+                "cases such as tiny alphabets or many duplicates) AND across the full range of every PARAMETER of the "
+                "API that the goal or signature allows (e.g. thresholds, limits, k, n: include the largest plausible "
+                "values, not only the ones bench.py uses). Import from src the way bench.py does (add the repo "
                 "root to sys.path), print only the elapsed seconds on the last line. Size it so it takes 0.5-4 s on the "
                 "CURRENT slow code: estimate from bench.py's timing, run it at most twice, then stop. Do not modify the repo.",
                 str(wt), self.model, self.slice(0.07), timeout=cap)
@@ -502,7 +504,8 @@ class SpeedRun(Run):
         claude(
             f"Goal:\n{self.goal}\n\nRead the current implementation in src/ and bench.py. Find the input class that is "
             "WORST-CASE for this specific algorithm (e.g. tiny alphabets / many repeated values / long equal runs for "
-            "match-list algorithms, adversarial orderings, sizes that defeat its pruning) while still valid input. Write "
+            "match-list algorithms, adversarial orderings, sizes that defeat its pruning, and the PARAMETER values - "
+            "e.g. the largest threshold/k/limit the goal allows - where its cost grows fastest) while still valid input. Write "
             f"EXACTLY {path}: a benchmark like bench.py on that worst-case input class, printing only the elapsed seconds "
             "on its last line. Size it so the ORIGINAL naive code (see `git show "
             f"{self.base}:<file>`) would take roughly 1-5 s. Run it at most twice, then stop. Do not modify the repo.",

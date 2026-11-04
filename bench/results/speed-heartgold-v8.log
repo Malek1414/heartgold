@@ -1,0 +1,6 @@
+fuzzymatch score=0.193 hidden= 40/40 visible= 1/1 speed=0.193 cost=$2.758 1062s
+lcs        score=1.434 hidden=124/124 visible= 1/1 speed=1.434 cost=$2.462 1116s
+nqueens    score=0.882 hidden= 12/12 visible= 1/1 speed=0.882 cost=$1.279 639s
+primes     score=1.750 hidden= 41/41 visible= 1/1 speed=1.75 cost=$1.334 633s
+TOTAL heartgold: 1.065  -> /Users/malekhassan/Desktop/heartgold/bench/results/speed-heartgold-v8-20261104-110228.json
+bench/results/speed-heartgold-v8-20261104-110228.json 1.065 [('fuzzymatch', '40/40'), ('lcs', '124/124'), ('nqueens', '12/12'), ('primes', '41/41')]
