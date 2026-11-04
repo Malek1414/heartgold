@@ -58,8 +58,9 @@ class Run:
     def left(self):
         return self.budget - COST["usd"]
 
-    def slice(self, frac):
-        return max(0.05, min(self.left(), self.budget * frac))
+    def slice(self, frac, floor=0.15):
+        # every agent call pays ~$0.05-0.10 just to start, so a tiny cap only buys a half-finished job
+        return max(min(floor, max(self.left(), 0.05)), min(self.left(), self.budget * frac))
 
     def spec_note(self):
         if self.spec_dir.exists() and any(self.spec_dir.iterdir()):
@@ -428,7 +429,7 @@ class SpeedRun(Run):
                 "deterministically inline (e.g. random.Random(seed) inside the expression). EACH expression must finish "
                 "in well under 0.5 s on the CURRENT slow code - keep sizes small - and return a plain comparable value. "
                 "Write a short generator script in /tmp, run it once, check the JSON loads, and stop. Do not modify the repo.",
-                str(wt), self.model, self.slice(0.04), timeout=cap)
+                str(wt), self.model, self.slice(0.08), timeout=cap)
 
         def make_alt():
             claude(
@@ -437,7 +438,7 @@ class SpeedRun(Run):
                 "cases such as tiny alphabets or many duplicates). Import from src the way bench.py does (add the repo "
                 "root to sys.path), print only the elapsed seconds on the last line. Size it so it takes 0.5-4 s on the "
                 "CURRENT slow code: estimate from bench.py's timing, run it at most twice, then stop. Do not modify the repo.",
-                str(wt), self.model, self.slice(0.03), timeout=cap)
+                str(wt), self.model, self.slice(0.07), timeout=cap)
 
         with ThreadPoolExecutor(2) as ex:
             list(ex.map(lambda f: f(), (make_probe, make_alt)))
@@ -505,7 +506,7 @@ class SpeedRun(Run):
             f"EXACTLY {path}: a benchmark like bench.py on that worst-case input class, printing only the elapsed seconds "
             "on its last line. Size it so the ORIGINAL naive code (see `git show "
             f"{self.base}:<file>`) would take roughly 1-5 s. Run it at most twice, then stop. Do not modify the repo.",
-            str(wt), self.model, self.slice(0.03), timeout=300, tools=["Read", "Grep", "Glob", "Bash", "Write"])
+            str(wt), self.model, self.slice(0.06), timeout=300, tools=["Read", "Grep", "Glob", "Bash", "Write"])
         self.drop_worktree(wt)
         if not path.exists():
             self.log("speed.adversary", k=k, ok=False)
@@ -678,7 +679,7 @@ class SpeedRun(Run):
             "Results must stay IDENTICAL to the current code for every input (heartgold checks this on hundreds of "
             f"hidden probe inputs). All tests must pass: {self.test_cmd}. Do not edit tests or benchmarks, do not "
             "special-case the benchmark's inputs, no caching across calls, no hard-coded answers.",
-            wt, self.model, self.slice(0.1), timeout=1500)
+            wt, self.model, self.slice(0.16, floor=0.3), timeout=1500)
         self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
         m = self.measure(wt, self.expected)
         if not m["ok"] and m["bench"] < best["bench"] * 0.5 and self.left() > self.budget * 0.2:
@@ -691,7 +692,7 @@ class SpeedRun(Run):
                 + "Fix the code so every result is identical to the original for EVERY input, including edge cases and "
                 "the exact exception type for invalid input, while keeping the speedup. Use `git show HEAD~1:<file>` to "
                 f"read the original if needed. Run: {self.test_cmd}. Do not edit tests.",
-                wt, self.model, self.slice(0.06), timeout=900)
+                wt, self.model, self.slice(0.08, floor=0.2), timeout=900)
             self.commit(wt, f"heartgold repair: {idea.get('name')}")
             m2 = self.measure(wt, self.expected)
             self.log("speed.repair", i=i, idea=idea.get("name"), ok=m2["ok"], bench=m2["bench"], left=len(m2["mismatches"]))
@@ -712,7 +713,7 @@ class SpeedRun(Run):
         deadline = self.t0 + self.time_limit
         while queue and self.left() > self.budget * 0.15 and time.time() + 420 < deadline:
             rnd += 1
-            width = 3 if rnd == 1 else 2
+            width = 2
             batch = [queue.pop(0) for _ in range(min(width, len(queue)))]
             with ThreadPoolExecutor(len(batch)) as ex:
                 results = list(ex.map(lambda a: self.attempt(a[0], best_ref, a[1], best, history), enumerate(batch)))
