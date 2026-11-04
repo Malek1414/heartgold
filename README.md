@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/heartgold-logo.png" alt="heartgold" width="220">
+  <img src="assets/heartgold-logo-animated.gif" alt="heartgold - a pumping golden heart" width="220">
 </p>
 
 <h1 align="center">heartgold</h1>
