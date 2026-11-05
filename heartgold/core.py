@@ -381,6 +381,49 @@ SPEED_WORDS = re.compile(r"\b(fast|faster|speed|performance|latency|throughput|o
 
 
 class SpeedRun(Run):
+    def detect(self):
+        super().detect()
+        self.focus_code()
+
+    def focus_code(self, limit=24000):
+        """Real repos are too big to show whole: profile the benchmark and show the agents only the files where
+        the time goes (plus the file list), instead of the first 60k characters of the repo."""
+        cmd = self.bench_cmd or ""
+        if not cmd.endswith(".py") or " " not in cmd:
+            return
+        py, script = cmd.rsplit(" ", 1)
+        prof = self.state / "bench.prof"
+        code, _ = sh(f"{py} -m cProfile -o {shlex.quote(str(prof))} {shlex.quote(script)}", self.repo, 600)
+        if code != 0 or not prof.exists():
+            return
+        import pstats
+        st = pstats.Stats(str(prof))
+        per_file, hot_funcs = {}, []
+        root = str(self.repo.resolve())
+        for (fname, line, func), (cc, nc, tt, ct, callers) in st.stats.items():
+            f = str(pathlib.Path(fname).resolve()) if fname and fname[0] not in "<~" else ""
+            if not f.startswith(root) or "/.venv/" in f or f.endswith(script):
+                continue
+            rel = f[len(root) + 1:]
+            per_file[rel] = per_file.get(rel, 0) + tt
+            hot_funcs.append((ct, f"{rel}:{line} {func}  cumulative {ct:.3f}s  own {tt:.3f}s  calls {nc}"))
+        if not per_file:
+            return
+        hot_files = [f for f, _ in sorted(per_file.items(), key=lambda kv: -kv[1])][:6]
+        files = sh("git ls-files", self.repo)[1].split()
+        parts = ["## Where the benchmark spends its time (cProfile, top functions)",
+                 *[h for _, h in sorted(hot_funcs, reverse=True)[:25]],
+                 "", "## Repository files", " ".join(files[:400])]
+        used = sum(len(p) for p in parts)
+        for rel in hot_files + [script]:
+            p = self.repo / rel
+            if p.exists() and used < limit:
+                txt = p.read_text(errors="replace")[: max(0, limit - used)]
+                parts += ["", f"--- {rel}", txt]
+                used += len(txt)
+        self.code = "\n".join(parts)
+        self.log("speed.profile", hot_files=hot_files, chars=len(self.code))
+
     """Open-ended optimization: research algorithms, then rounds of parallel attempts from the current best.
     A change is kept only if (1) its outputs match the ORIGINAL code on hundreds of probe inputs, (2) all
     tests pass, and (3) it is faster on both the repo's benchmark and an independent one heartgold wrote."""
@@ -715,7 +758,8 @@ class SpeedRun(Run):
             m2 = self.measure(wt, self.expected)
             self.log("speed.repair", i=i, idea=idea.get("name"), ok=m2["ok"], bench=m2["bench"], left=len(m2["mismatches"]))
             m = m2
-        self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"])
+        self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"],
+                 failing=m.get("failing", [])[:6])
         m["session"] = sid
         return wt, m
 
