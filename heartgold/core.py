@@ -4,7 +4,7 @@ map -> research (passages + cited requirements + FULL spec text) -> spec tests -
 -> differential testing (probe all candidates, a spec-reading judge settles every disagreement, verdicts
 become exact-value tests) -> pick best -> fix -> second diff round -> optimize -> gate -> merge.
 """
-import datetime, importlib.util, json, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
+import datetime, importlib.util, json, math, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .agent import COST, LAST, claude, extract_json
@@ -372,6 +372,47 @@ class Run:
         (self.state / "report.md").write_text("\n".join(lines) + "\n")
 
 
+_NUMPY_WRAP = re.compile(r"\b(?:np\.)?(?:float64|float32|int64|int32|float_|int_)\(([^()]*)\)")
+
+
+def _parse_out(o):
+    """A probe output ('=<repr>' or '!Exc') as a Python value when possible (numpy scalars/arrays unwrapped)."""
+    if not o.startswith("="):
+        return o
+    t = _NUMPY_WRAP.sub(r"\1", o[1:])
+    t = re.sub(r"\barray\(", "(", t)
+    try:
+        import ast
+        return ast.literal_eval(t)
+    except Exception:
+        return o
+
+
+def same_output(expected, got, rel=1e-9, abs_=1e-12):
+    """Equal, except floats only need to agree to ~9 significant digits: reordering a sum (np.add.at vs bincount,
+    vectorising a loop) changes the last bits without being a bug; a real bug changes results far more."""
+    if expected == got:
+        return True
+    a, b = _parse_out(expected), _parse_out(got)
+    if isinstance(a, str) or isinstance(b, str):
+        return a == b
+
+    def close(x, y):
+        if isinstance(x, bool) or isinstance(y, bool):
+            return x == y
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            return math.isclose(x, y, rel_tol=rel, abs_tol=abs_)
+        if isinstance(x, (list, tuple)) and isinstance(y, (list, tuple)):
+            return len(x) == len(y) and all(close(p, q) for p, q in zip(x, y))
+        if isinstance(x, dict) and isinstance(y, dict):
+            return x.keys() == y.keys() and all(close(x[k], y[k]) for k in x)
+        if isinstance(x, set) and isinstance(y, set):
+            return x == y
+        return x == y
+
+    return close(a, b)
+
+
 def ideas_of(reply):
     """Ideas from an agent reply, whether it sent {"ideas": [...]} or a bare list."""
     data = extract_json(reply, {})
@@ -709,7 +750,8 @@ class SpeedRun(Run):
                 same, mismatches = False, [("(probe run crashed or timed out)", "", "")]
             else:
                 # inputs the ORIGINAL code could not finish carry no information; compare all the others
-                mismatches = [(x, e, g) for x, e, g in zip(exprs, expected, got) if e != "!timeout" and g != e]
+                mismatches = [(x, e, g) for x, e, g in zip(exprs, expected, got)
+                              if e != "!timeout" and not same_output(e, g)]
                 same = not mismatches
         alt = None
         if (self.state / "bench_alt.py").exists():
