@@ -696,7 +696,7 @@ class SpeedRun(Run):
             "Results must stay IDENTICAL to the current code for every input (heartgold checks this on hundreds of "
             f"hidden probe inputs). All tests must pass: {self.test_cmd}. Do not edit tests or benchmarks, do not "
             "special-case the benchmark's inputs, no caching across calls, no hard-coded answers.",
-            wt, self.model, self.slice(0.16, floor=0.3), timeout=1500, resume=session, keep=True)
+            wt, self.model, self.slice(0.16, floor=0.3), timeout=1500, resume=session)
         sid = LAST.session
         self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
         m = self.measure(wt, self.expected)
@@ -742,8 +742,7 @@ class SpeedRun(Run):
             starts = [(best_ref, best)] + [(second[0], second[1]) if use_second else (best_ref, best)] * (len(batch) - 1)
             with ThreadPoolExecutor(len(batch)) as ex:
                 results = list(ex.map(
-                    lambda a: self.attempt(a[0], starts[a[0]][0], a[1], best, history,
-                                           session=starts[a[0]][1].get("session")),
+                    lambda a: self.attempt(a[0], starts[a[0]][0], a[1], best, history),
                     enumerate(batch)))
             winner = None
             old_obj = self.objective(best)
