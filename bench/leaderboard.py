@@ -35,7 +35,8 @@ for suite in ("speed", "hard2", "hard", "easy"):
     out.append("")
 # averages over repeated runs (single runs swing by about +-0.2 on the speed suite)
 import statistics as st
-groups = {"heartgold (v10-v12)": "speed-heartgold-v1[0-2]-*.json", "plain-claude": "speed-plain-claude-*.json"}
+groups = {"heartgold (v10-v12)": "speed-heartgold-v1[0-2]-*.json", "heartgold v18": "speed-heartgold-v18-*.json",
+          "plain-claude": "speed-plain-claude-*.json"}
 avg_rows = []
 for name, pat in groups.items():
     runs = [json.loads(p.read_text()) for p in sorted((ROOT / "results").glob(pat))]

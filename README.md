@@ -66,7 +66,8 @@ on an idle machine.
 
 | tool | runs | mean | fuzzymatch | lcs | nqueens | primes |
 |---|---|---|---|---|---|---|
-| **heartgold** | 3 | **1.117** | **0.469** | **1.406** | **0.861** | **1.732** |
+| **heartgold v18** (current) | 1 | **1.286** | **0.777** | **1.495** | 0.995 | **1.862** |
+| heartgold v10-v12 | 3 | 1.117 | 0.469 | 1.406 | 0.861 | 1.732 |
 | plain `claude -p` (one prompt) | 3 | 0.978 | 0.374 | 0.997 | 0.853 | 1.690 |
 | [autoresearch](https://github.com/uditgoenka/autoresearch) | 1 | 0.820 | 0.399 | 1.480 | 1.013 | 0.387 |
 
@@ -118,5 +119,8 @@ python -m heartgold run REPO --goal "..." | --goal-file goal.md
 
 ## Status
 
-Research prototype. The speed pipeline is the version with the best benchmark results (v10); see the git log for
-what each version changed and why.
+Research prototype. The current pipeline (v18) has the best speed-suite score so far (1.286) and is the first
+version that improved a real codebase: on [Neurotree](bench/real/README.md) (a 55k-node, 160 MB graph) it made
+`attend()` 4.5x faster with identical results and all 36 tests passing. Each real-repo run so far exposed a bug the
+small fixtures could not (see bench/real/README.md); more real repos are next. The git log explains what each
+version changed and why.

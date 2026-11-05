@@ -10,6 +10,7 @@ DQ = read hidden test data (scored 0). '-' = no valid run yet.
 
 | tool | score | fuzzymatch | lcs | nqueens | primes | cost | time |
 |---|---|---|---|---|---|---|---|
+| heartgold-v18 | **1.286** | 0.791 | 1.489 | 0.992 | 1.871 | $10.54 | 77m |
 | heartgold-v10 | **1.252** | 0.577 | 1.533 | 0.995 | 1.902 | $11.62 | 74m |
 | heartgold-v4 | **1.156** | 0.564 | 1.403 | 0.899 | 1.758 | $8.25 | 46m |
 | heartgold-v3 | **1.081** | 0.604 | 1.569 | 1.014 | 1.135 | $8.05 | 74m |
@@ -56,6 +57,7 @@ DQ = read hidden test data (scored 0). '-' = no valid run yet.
 
 | tool | runs | mean | fuzzymatch | lcs | nqueens | primes | per-run totals |
 |---|---|---|---|---|---|---|---|
+| heartgold v18 | 1 | **1.286** | 0.791 | 1.489 | 0.992 | 1.871 | 1.286 |
 | heartgold (v10-v12) | 3 | **1.117** | 0.469 | 1.406 | 0.861 | 1.732 | 1.252, 1.056, 1.043 |
 | plain-claude | 3 | **0.978** | 0.374 | 0.997 | 0.853 | 1.690 | 1.084, 0.950, 0.901 |
 
