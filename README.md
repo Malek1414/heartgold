@@ -80,6 +80,26 @@ suites cannot separate good tools. They are kept as regression checks.
 Full tables: [`bench/LEADERBOARD.md`](bench/LEADERBOARD.md). How the loop that built heartgold worked:
 [`LOOP.md`](LOOP.md) and [`PLAN.md`](PLAN.md).
 
+## Install as a Claude Code plugin
+
+heartgold ships as a Claude Code plugin marketplace from this repo, so you can install it straight from GitHub:
+
+```
+/plugin marketplace add Malek1414/heartgold
+/plugin install heartgold@heartgold
+```
+
+This gives you:
+- a `heartgold` **skill** that Claude Code can invoke automatically when you ask it to e.g. "make this faster
+  without changing results" or "implement X to spec with proof", or that you can call explicitly with
+  `/heartgold:heartgold`;
+- a `/heartgold` **slash command** that runs `python -m heartgold run <repo> --goal "$ARGUMENTS"` for you.
+
+heartgold's Python package has no third-party dependencies, but it still needs the [Claude Code](https://claude.com/claude-code)
+CLI (`claude`) on `PATH` to run its headless coding agent, plus `pytest`/`pytest-timeout` in the environment
+that runs your target repo's tests. `gh` and `searchify` are optional research sources. See the skill's
+`SKILL.md` for the full setup and how to read `.heartgold/report.md` and `.heartgold/ledger.jsonl` afterward.
+
 ## Requirements
 
 - Python 3.11+ with `pytest` (and `pytest-timeout`) in the environment that runs the target repo's tests

@@ -1,0 +1,32 @@
+{
+  "name": "heartgold",
+  "owner": {
+    "name": "Malek Hassan",
+    "url": "https://github.com/Malek1414"
+  },
+  "metadata": {
+    "description": "heartgold — research, try, verify, and keep only proven-better code changes"
+  },
+  "plugins": [
+    {
+      "name": "heartgold",
+      "source": "./",
+      "description": "Point heartgold at a repo and a goal. It researches how the best people solve the problem, tries several implementations in isolated git worktrees, and keeps only the changes it can prove are better (identical-output oracle for speed goals, spec-cited tests for correctness goals).",
+      "version": "0.1.0",
+      "author": {
+        "name": "Malek Hassan",
+        "url": "https://github.com/Malek1414"
+      },
+      "homepage": "https://github.com/Malek1414/heartgold",
+      "keywords": [
+        "optimization",
+        "performance",
+        "benchmarking",
+        "research",
+        "code-improvement",
+        "tdd"
+      ],
+      "category": "productivity"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "heartgold",
+  "description": "Point it at a repo and a goal. heartgold researches how the best people solve that problem, tries several implementations in isolated git worktrees, and keeps only the changes it can prove are better.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Malek Hassan",
+    "url": "https://github.com/Malek1414"
+  },
+  "repository": "https://github.com/Malek1414/heartgold",
+  "homepage": "https://github.com/Malek1414/heartgold",
+  "keywords": [
+    "optimization",
+    "performance",
+    "benchmarking",
+    "research",
+    "code-improvement",
+    "tdd"
+  ]
+}
