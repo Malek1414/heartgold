@@ -759,7 +759,7 @@ class SpeedRun(Run):
             self.log("speed.repair", i=i, idea=idea.get("name"), ok=m2["ok"], bench=m2["bench"], left=len(m2["mismatches"]))
             m = m2
         self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"],
-                 failing=m.get("failing", [])[:6])
+                 failing=m.get("failing", [])[:6], why=("" if m["ok"] else (m.get("tail") or "")[-400:]))
         m["session"] = sid
         return wt, m
 
