@@ -4,7 +4,7 @@ map -> research (passages + cited requirements + FULL spec text) -> spec tests -
 -> differential testing (probe all candidates, a spec-reading judge settles every disagreement, verdicts
 become exact-value tests) -> pick best -> fix -> second diff round -> optimize -> gate -> merge.
 """
-import datetime, importlib.util, json, math, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
+import datetime, importlib.util, json, math, pathlib, re, shlex, threading, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 from .agent import COST, LAST, claude, extract_json
@@ -424,6 +424,9 @@ def ideas_of(reply):
 SPEED_WORDS = re.compile(r"\b(fast|faster|speed|performance|latency|throughput|optimi[sz]e)\b", re.I)
 
 
+_MEASURE = threading.Lock()  # timings are only meaningful when nothing else is being timed at the same moment
+
+
 class SpeedRun(Run):
     def detect(self):
         super().detect()
@@ -739,6 +742,12 @@ class SpeedRun(Run):
         return best
 
     def measure(self, wt, expected):
+        # parallel attempts may CODE at the same time, but they are measured one at a time: on heavy workloads two
+        # concurrent benchmarks made every candidate look slower (Neurotree: alt bench 3.3 s -> 4.4-6.2 s)
+        with _MEASURE:
+            return self._measure(wt, expected)
+
+    def _measure(self, wt, expected):
         from .diff import run_probe
         wt = pathlib.Path(wt)
         g = self.gate(wt)
