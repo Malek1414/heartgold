@@ -1,5 +1,5 @@
 """Headless coding-agent calls (claude -p) with cost tracking."""
-import json, os, subprocess, sys
+import json, os, subprocess, sys, threading
 
 COST = {"usd": 0.0}
 
@@ -8,11 +8,24 @@ class BudgetExceeded(Exception):
     pass
 
 
-def claude(prompt, cwd, model="sonnet", budget=1.0, timeout=900, tools=None):
-    """Run one headless agent turn in `cwd`. Returns the final text."""
+class _Last(threading.local):
+    session = None
+
+
+LAST = _Last()  # per thread: parallel attempts must not see each other's session ids
+
+
+def claude(prompt, cwd, model="sonnet", budget=1.0, timeout=900, tools=None, resume=None, keep=False):
+    """Run one headless agent turn in `cwd`. Returns the final text; the session id lands in LAST.session.
+    resume: fork a previous session (works across directories), so the agent starts with what it already knows.
+    keep: persist this session so a later call can fork it."""
     cmd = ["claude", "-p", "--model", model, "--dangerously-skip-permissions",
-           "--setting-sources", "project", "--strict-mcp-config", "--no-session-persistence",
+           "--setting-sources", "project", "--strict-mcp-config",
            "--output-format", "json", "--max-budget-usd", f"{budget:.2f}"]
+    if not (keep or resume):
+        cmd.append("--no-session-persistence")
+    if resume:
+        cmd += ["--resume", resume, "--fork-session"]
     if tools:
         # one token: as a separate argument the variadic flag would swallow the prompt that follows
         cmd += [f"--allowedTools={','.join(tools)}"]
@@ -28,6 +41,7 @@ def claude(prompt, cwd, model="sonnet", budget=1.0, timeout=900, tools=None):
     except json.JSONDecodeError:
         return out
     COST["usd"] += data.get("total_cost_usd", 0.0) or 0.0
+    LAST.session = data.get("session_id")
     if data.get("subtype") not in (None, "success") or data.get("is_error"):
         print(f"HEARTGOLD_AGENT_STOP subtype={data.get('subtype')} turns={data.get('num_turns')} "
               f"cost={data.get('total_cost_usd')}", flush=True)

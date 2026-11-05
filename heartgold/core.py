@@ -7,7 +7,7 @@ become exact-value tests) -> pick best -> fix -> second diff round -> optimize -
 import datetime, importlib.util, json, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
-from .agent import COST, claude, extract_json
+from .agent import COST, LAST, claude, extract_json
 from .diff import disagreements, tests_from_verdicts
 from .research import fetch_specs, research
 
@@ -679,10 +679,14 @@ class SpeedRun(Run):
                     mismatches=mismatches[:15], failing=g["orig"].get("failing", [])[:10],
                     tail=g["orig"].get("tail", "")[-1500:])
 
-    def attempt(self, i, ref, idea, best, history):
+    def attempt(self, i, ref, idea, best, history, session=None):
         wt = self.worktree(f"opt{i}", ref)
         tried = "\n".join(f"- {h}" for h in history[-12:]) or "(nothing yet)"
+        cont = ("You are continuing from the session that produced the CURRENT version in this repository (it is "
+                "already checked out here; your earlier edits are in it). Skip re-reading what you already know.\n\n"
+                if session else "")
         claude(
+            cont + 
             f"Goal:\n{self.goal}\n\nCurrent speed: `{self.bench_cmd}` = {best['bench']:.4f}s"
             + (f", independent benchmark = {best['alt']:.4f}s" if best.get("alt") else "") +
             f"\n\nStrategy to implement now: {idea.get('name')}: {idea.get('how')}"
@@ -692,7 +696,8 @@ class SpeedRun(Run):
             "Results must stay IDENTICAL to the current code for every input (heartgold checks this on hundreds of "
             f"hidden probe inputs). All tests must pass: {self.test_cmd}. Do not edit tests or benchmarks, do not "
             "special-case the benchmark's inputs, no caching across calls, no hard-coded answers.",
-            wt, self.model, self.slice(0.16, floor=0.3), timeout=1500)
+            wt, self.model, self.slice(0.16, floor=0.3), timeout=1500, resume=session, keep=True)
+        sid = LAST.session
         self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
         m = self.measure(wt, self.expected)
         if not m["ok"] and m["bench"] < best["bench"] * 0.5 and self.left() > self.budget * 0.2:
@@ -711,6 +716,7 @@ class SpeedRun(Run):
             self.log("speed.repair", i=i, idea=idea.get("name"), ok=m2["ok"], bench=m2["bench"], left=len(m2["mismatches"]))
             m = m2
         self.log("speed.attempt", i=i, idea=idea.get("name"), ok=m["ok"], same=m["same"], bench=m["bench"], alt=m["alt"])
+        m["session"] = sid
         return wt, m
 
     def run(self):
@@ -721,18 +727,27 @@ class SpeedRun(Run):
         self.log("speed.baseline", bench=base["bench"], alt=base["alt"])
         ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
         best, best_ref, history, queue = base, self.base, [], list(ideas)
+        # population of two lineages: a second-best line keeps a different approach alive, so an early pick of a
+        # weaker algorithm cannot lock in the whole run (the main cause of run-to-run swings)
+        second = None                      # (ref, m) - best correct result outside the leading line
         rnd, self.stale, self.restack, self.reimpl = 0, 0, [], []
+        small_gains = 0
         self.base_m, self.adv_benches, self.adv_base = base, [], {}
         deadline = self.t0 + self.time_limit
         while queue and self.left() > self.budget * 0.15 and time.time() + 420 < deadline:
             rnd += 1
-            width = 2
-            batch = [queue.pop(0) for _ in range(min(width, len(queue)))]
+            batch = [queue.pop(0) for _ in range(min(2, len(queue)))]
+            # attempt 0 builds on the leader; attempt 1 on the runner-up while it is still competitive (within 3x)
+            use_second = second is not None and self.objective(second[1]) < self.objective(best) * 3
+            starts = [(best_ref, best)] + [(second[0], second[1]) if use_second else (best_ref, best)] * (len(batch) - 1)
             with ThreadPoolExecutor(len(batch)) as ex:
-                results = list(ex.map(lambda a: self.attempt(a[0], best_ref, a[1], best, history), enumerate(batch)))
+                results = list(ex.map(
+                    lambda a: self.attempt(a[0], starts[a[0]][0], a[1], best, history,
+                                           session=starts[a[0]][1].get("session")),
+                    enumerate(batch)))
             winner = None
-            for (wt, m), idea in zip(results, batch):
-                # must be faster on the combined (geometric-mean) objective and not slower on either benchmark
+            old_obj = self.objective(best)
+            for k, ((wt, m), idea) in enumerate(zip(results, batch)):
                 faster = (m["ok"] and self.objective(m) < self.objective(best) * 0.97
                           and all(r1 <= r0 * 1.05 for r1, r0 in zip(self.ratios(m), self.ratios(best))))
                 exp = idea.get("expected_speedup")
@@ -749,17 +764,31 @@ class SpeedRun(Run):
                                f"(bench {m['bench']:.4f}, identical={m['same']}, tests={m['tests']})")
                 if faster and (winner is None or self.objective(m) < self.objective(winner[1])):
                     winner = (wt, m)
+            # update the population: the best correct non-winning result (or the dethroned leader) is the runner-up
+            losers = [(self.head(wt), m) for wt, m in results
+                      if m["ok"] and (winner is None or wt != winner[0]) and self.objective(m) < self.objective(base)]
             if winner:
+                if best_ref != self.base:
+                    losers.append((best_ref, best))
                 best_ref, best = self.head(winner[0]), winner[1]
                 self.merge(best_ref)  # merge every win at once, so a timeout never loses it
                 if len(self.adv_benches) < 3 and self.left() > self.budget * 0.25 and time.time() + 600 < deadline:
+                    sess = best.get("session")
                     best = self.adversary(best_ref, best)
+                    best.setdefault("session", sess)
+            if second:
+                losers.append(second)
+            losers = [c for c in losers if c[0] != best_ref]
+            second = min(losers, key=lambda c: self.objective(c[1])) if losers else None
             for wt, _ in results:
                 self.drop_worktree(wt)
-            self.log("speed.round", round=rnd, best=best["bench"], alt=best.get("alt"), improved=bool(winner))
+            gain = old_obj / max(self.objective(best), 1e-12)
+            self.log("speed.round", round=rnd, best=best["bench"], alt=best.get("alt"), improved=bool(winner),
+                     gain=round(gain, 3), second=round(self.objective(second[1]), 5) if second else None)
             self.stale = 0 if winner else self.stale + 1
-            if self.stale >= 3:
-                break  # three rounds without progress, even after fresh research
+            small_gains = small_gains + 1 if (winner and gain < 1.08) else 0
+            if self.stale >= 3 or small_gains >= 2:
+                break  # no progress, or two winning rounds in a row that each gained < 8%: stop spending
             if (self.stale or not queue) and self.left() > self.budget * 0.2:
                 # no improvement (or out of ideas): a new web + GitHub research round seeds the next round
                 queue = self.more_ideas(best_ref, history) + queue
