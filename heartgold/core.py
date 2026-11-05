@@ -749,7 +749,7 @@ class SpeedRun(Run):
         sid = LAST.session
         self.commit(wt, f"heartgold speed attempt: {idea.get('name')}")
         m = self.measure(wt, self.expected)
-        if not m["ok"] and m["bench"] < best["bench"] * 0.5 and self.left() > self.budget * 0.2:
+        if not m["ok"] and m["bench"] < best["bench"] * 0.8 and self.left() > self.budget * 0.2:
             # fast but wrong: the most valuable kind of attempt - show exactly what differs and repair it
             diffs = "\n".join(f"  {x}\n    original: {e}\n    yours:    {g}" for x, e, g in m["mismatches"])
             claude(
