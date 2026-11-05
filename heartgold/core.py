@@ -87,6 +87,9 @@ class Run:
                  and p.suffix in {".py", ".js", ".ts", ".go", ".rs", ".md", ".toml", ".json", ".java", ".rb"}]
         rel = [str(p.relative_to(self.repo)) for p in files]
         self.orig_tests = [r for r in rel if re.search(r"(^|/)tests?/|(^|/)test_|_test\.", r)]
+        if self.test_cmd and "pytest" in self.test_cmd:
+            # a mixed-language repo also has e.g. viewer/tests/*.test.ts: handing those to pytest fails every run
+            self.orig_tests = [r for r in self.orig_tests if r.endswith(".py")]
         self.py_modules = [r for r in rel if r.endswith(".py") and r not in self.orig_tests and r != "bench.py"]
         chunks, total = [], 0
         for p in files:
@@ -718,7 +721,10 @@ class SpeedRun(Run):
             shutil.copy(b["path"], wt / "_bench_adv.py")
             extra[b["path"].name] = self.bench_file(wt, "_bench_adv.py")
             (wt / "_bench_adv.py").unlink(missing_ok=True)
-        return dict(ok=g["orig"]["ok"] and same, same=same, tests=g["orig"]["ok"], bench=g["bench"], alt=alt, extra=extra,
+        failing = set(g["orig"].get("failing", []))
+        # judged relative to the original: tests that already fail on the unchanged code do not reject a candidate
+        tests_ok = g["orig"]["ok"] or (bool(failing) and failing <= getattr(self, "base_failing", set()))
+        return dict(ok=tests_ok and same, same=same, tests=tests_ok, bench=g["bench"], alt=alt, extra=extra,
                     mismatches=mismatches[:15], failing=g["orig"].get("failing", [])[:10],
                     tail=g["orig"].get("tail", "")[-1500:])
 
@@ -767,8 +773,11 @@ class SpeedRun(Run):
         self.detect()
         self.expected, base_alt = self.oracle()
         base = self.measure(self.repo, self.expected)
+        if not base["tests"]:
+            self.base_failing = set(base.get("failing", []))
+            self.log("speed.baseline_tests_fail", failing=sorted(self.base_failing)[:10], tail=(base.get("tail") or "")[-300:])
         base["alt"] = base_alt or base["alt"]
-        self.log("speed.baseline", bench=base["bench"], alt=base["alt"])
+        self.log("speed.baseline", bench=base["bench"], alt=base["alt"], tests_ok=base["tests"])
         ideas = self.ideas() or [{"name": "best algorithm", "how": "use the asymptotically fastest approach"}]
         best, best_ref, history, queue = base, self.base, [], list(ideas)
         # population of two lineages: a second-best line keeps a different approach alive, so an early pick of a
