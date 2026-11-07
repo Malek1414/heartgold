@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 import argparse, pathlib, re, sys
 
 from .core import SPEED_WORDS, Run, SpeedRun
@@ -35,7 +37,10 @@ def main():
                        budget=a.budget_usd, candidates=a.candidates, diff_rounds=a.diff_rounds, test_cmd=a.test_cmd,
                        bench_cmd=a.bench_cmd, time_limit=a.time_limit).run()
         sys.exit(0 if ok else 1)
-    cls = SpeedRun if (SPEED_WORDS.search(goal) and (pathlib.Path(a.repo) / "bench.py").exists()
+    from .lang import detect
+    lang = detect(pathlib.Path(a.repo))
+    has_bench = bool(a.bench_cmd) or any((pathlib.Path(a.repo) / b).exists() for b in lang.bench_files)
+    cls = SpeedRun if (SPEED_WORDS.search(goal) and has_bench
                        and re.search(r"(only goal|as fast as possible)", goal, re.I)) else Run
     ok = cls(a.repo, goal, a.model, a.budget_usd, a.candidates, a.diff_rounds, a.test_cmd, a.bench_cmd, a.time_limit).run()
     sys.exit(0 if ok else 1)

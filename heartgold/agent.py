@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Headless coding-agent calls (claude -p) with cost tracking."""
 import json, os, subprocess, sys, threading
 

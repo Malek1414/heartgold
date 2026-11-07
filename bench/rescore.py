@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Re-score finished runs against the current hidden tests (after an oracle fix) without re-running tools."""
 import json, pathlib, shutil, sys
 

@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """The heartgold pipeline (v2).
 
 map -> research (passages + cited requirements + FULL spec text) -> spec tests -> 3 diverse candidates
@@ -70,27 +72,28 @@ class Run:
 
     # ---------- map
     def detect(self):
+        from . import lang as L
+        self.lang = L.detect(self.repo)
         if self.test_cmd is None:
-            if any(self.repo.glob("**/*.py")):
-                extra = " --timeout=60" if importlib.util.find_spec("pytest_timeout") else ""
-                self.test_cmd = f"{sys.executable} -m pytest -q -p no:cacheprovider{extra}"
-            elif (self.repo / "package.json").exists():
-                self.test_cmd = "npm test --silent"
-            elif (self.repo / "Cargo.toml").exists():
-                self.test_cmd = "cargo test -q"
-            elif (self.repo / "go.mod").exists():
-                self.test_cmd = "go test ./..."
-        if self.bench_cmd is None and (self.repo / "bench.py").exists():
-            self.bench_cmd = f"{sys.executable} bench.py"
+            self.test_cmd = self.lang.test_cmd
+        # every test command below is built from the language's rules, with the test command in use
+        self.lang = L.Lang(**{**self.lang.__dict__, "test_cmd": self.test_cmd})
+        self.spec_test, self.diff_test, self.adv_test = (self.lang.path_of(k) for k in L.KINDS)
+        if self.bench_cmd is None:
+            for b in self.lang.bench_files:
+                if (self.repo / b).exists():
+                    self.bench_cmd = self.lang.bench_cmd.format(file=b)
+                    break
+        exts = set(self.lang.exts) | {".md", ".toml", ".json", ".yaml", ".yml", ".txt", ".cfg", ".mod", ".xml", ".gradle", ".cmake"}
         files = [p for p in sorted(self.repo.rglob("*")) if p.is_file()
                  and not (set(p.relative_to(self.repo).parts) & SKIP_DIRS)
-                 and p.suffix in {".py", ".js", ".ts", ".go", ".rs", ".md", ".toml", ".json", ".java", ".rb"}]
+                 and (p.suffix in exts or p.name in ("CMakeLists.txt", "Gemfile", "Package.swift"))]
         rel = [str(p.relative_to(self.repo)) for p in files]
-        self.orig_tests = [r for r in rel if re.search(r"(^|/)tests?/|(^|/)test_|_test\.", r)]
-        if self.test_cmd and "pytest" in self.test_cmd:
-            # a mixed-language repo also has e.g. viewer/tests/*.test.ts: handing those to pytest fails every run
-            self.orig_tests = [r for r in self.orig_tests if r.endswith(".py")]
-        self.py_modules = [r for r in rel if r.endswith(".py") and r not in self.orig_tests and r != "bench.py"]
+        ours = {self.spec_test, self.diff_test, self.adv_test}
+        # only the main language's tests: a mixed repo also has e.g. viewer/tests/*.test.ts, which pytest cannot run
+        self.orig_tests = [r for r in rel if self.lang.is_test_file(r) and pathlib.Path(r).suffix in self.lang.exts and r not in ours]
+        self.py_modules = [r for r in rel if pathlib.Path(r).suffix in self.lang.exts and r not in self.orig_tests
+                           and r not in self.lang.bench_files]
         chunks, total = [], 0
         for p in files:
             txt = p.read_text(errors="replace")
@@ -107,14 +110,14 @@ class Run:
         excl.write_text(cur + "".join(f"{x}\n" for x in ("__pycache__/", "*.pyc", ".heartgold/", ".pytest_cache/") if x not in cur))
         sh("git add -A && git -c user.email=rf@rf -c user.name=heartgold commit -qm 'heartgold: baseline' --allow-empty", self.repo)
         self.base = sh("git rev-parse HEAD", self.repo)[1].strip()
-        self.log("map", test_cmd=self.test_cmd, bench_cmd=self.bench_cmd, files=len(files), orig_tests=self.orig_tests)
+        self.log("map", lang=self.lang.name, test_cmd=self.test_cmd, bench_cmd=self.bench_cmd, files=len(files), orig_tests=self.orig_tests)
 
     # ---------- measuring
-    def tests(self, cwd, path=""):
-        code, out = sh(f"{self.test_cmd} {path}".strip(), cwd, 900)
-        passed = sum(int(n) for n in re.findall(r"(\d+) passed", out))
-        failed = sum(int(n) for n in re.findall(r"(\d+) (?:failed|errors?)\b", out))
-        names = re.findall(r"^(?:FAILED|ERROR) (\S+)", out, re.M)
+    def tests(self, cwd, path="", cmd=None):
+        """Run tests: `cmd` as given, else the test command with `path` appended. Results from any runner."""
+        from .lang import parse_results
+        code, out = sh(cmd or f"{self.test_cmd} {path}".strip(), cwd, 900)
+        passed, failed, names = parse_results(out)
         return dict(passed=passed, failed=failed, ok=(code == 0 and failed == 0), failing=names, tail=out[-3000:])
 
     def bench(self, cwd):
@@ -136,10 +139,10 @@ class Run:
         if self.orig_tests:
             sh(f"git checkout {self.base} -- " + " ".join(map(shlex.quote, self.orig_tests)), wt)
         empty = dict(ok=True, passed=0, failed=0, failing=[], tail="")
-        orig = self.tests(wt, " ".join(map(shlex.quote, self.orig_tests))) if self.orig_tests else empty
+        orig = self.tests(wt, cmd=self.lang.run_orig(self.orig_tests)) if self.orig_tests else empty
         res = {"orig": orig}
-        for k, f in (("spec", SPEC_TEST), ("diff", DIFF_TEST), ("adv", ADV_TEST)):
-            res[k] = self.tests(wt, f) if (wt / f).exists() else dict(empty)
+        for k, f in (("spec", self.spec_test), ("diff", self.diff_test), ("adv", self.adv_test)):
+            res[k] = self.tests(wt, cmd=self.lang.run_kind(k)) if (wt / f).exists() else dict(empty)
         t = self.bench(wt)
         # differential tests were judged against the spec text, so they count double
         passed = res["spec"]["passed"] + 2 * res["diff"]["passed"] + res["adv"]["passed"]
@@ -174,29 +177,32 @@ class Run:
         claude(
             f"Goal:\n{self.goal}\n{self.spec_note()}\nRequirements from web research ('verified' ones are backed "
             f"by a quoted source):\n{json.dumps(reqs, indent=1)}\n\n"
-            f"Write {SPEC_TEST}: one focused test per requirement (name tests after the requirement id), "
+            f"Write heartgold's spec tests with {self.lang.framework} ({self.lang.naming('spec')}): one focused test "
+            "per requirement (name tests after the requirement id), "
             "testing ONLY the public API named in the goal / existing code, with exact expected values taken from "
             "the specification. These tests define 'done' for an implementer who will not see your reasoning: be "
             "precise and faithful to the spec; never contradict the goal or the existing tests; leave out anything "
-            f"you are unsure about. Do NOT change any other file. Make sure the file imports and collects: "
-            f"{self.test_cmd} {SPEC_TEST} (failures against the current code are expected).",
+            "you are unsure about. Do NOT change any other file" + (" except the build file that registers the tests"
+            if self.lang.name in ("cpp", "swift") else "") + ". Make sure the tests compile and are picked up by: "
+            f"{self.lang.run_kind('spec')} (failures against the current code are expected).",
             wt, self.model, self.slice(0.07))
-        ok = (wt / SPEC_TEST).exists()
+        ok = (wt / self.spec_test).exists()
         if ok:
-            shutil.copy(wt / SPEC_TEST, self.state / "spec_tests.py")
+            shutil.copy(wt / self.spec_test, self.state / "spec_tests" )
         self.drop_worktree(wt)
         self.log("spec_tests", written=ok)
         return ok
 
     def implement(self, i, reqs, perf_hint):
         wt = self.worktree(f"cand{i}")
-        if (self.state / "spec_tests.py").exists():
-            shutil.copy(self.state / "spec_tests.py", wt / SPEC_TEST)
+        if (self.state / "spec_tests").exists():
+            (wt / self.spec_test).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(self.state / "spec_tests", wt / self.spec_test)
         claude(
             f"Goal:\n{self.goal}\n{self.spec_note()}\nRequirements from web research:\n{json.dumps(reqs, indent=1)}\n\n"
             f"Implement the goal in this repository. {STYLES[i % len(STYLES)]} {perf_hint}\n"
             f"Done means ALL of these pass: {self.test_cmd}\n"
-            f"({SPEC_TEST} encodes the researched requirements. If you are CERTAIN a test there contradicts the "
+            f"({self.spec_test} encodes the researched requirements. If you are CERTAIN a test there contradicts the "
             "specification, leave it failing; never edit it to make it pass. Never edit or delete the pre-existing "
             "tests.) Keep public function/class signatures compatible.",
             wt, self.model, self.slice(0.15), timeout=1500)
@@ -205,7 +211,55 @@ class Run:
         self.log("candidate", i=i, key=g["key"], orig_ok=g["orig"]["ok"], failing=self.failing(g)[:12], bench=g["bench"])
         return [wt, g]
 
+    # ---------- probes in languages other than Python: a program that prints one JSON array (see lang.py)
+    def make_probe_program(self, wt, purpose, n="150-400"):
+        """Have the agent write the probe program for this language, plus probe_cases.json describing each case."""
+        prog, cases = self.state / "probe_program", self.state / "probe_cases.json"
+        if prog.exists() and cases.exists():
+            return prog
+        claude(
+            f"Goal:\n{self.goal}\n{self.spec_note()}\nSource files: {', '.join(self.py_modules[:40]) or '(none)'}\n\n"
+            f"{self.lang.probe_rule()}\n\nCover {n} cases: {purpose} Inline every input in the program "
+            "(deterministic, no randomness without a fixed seed); each case must run fast. Run the probe once and check "
+            f"that its last line is a JSON array. Then copy the program to {prog} and write {cases} as a JSON array "
+            "with one short description per case, in the same order (e.g. \"parse('1.0a') \"). Finally DELETE the "
+            f"probe program from the repository ({self.lang.probe_path}); do not change any other file.",
+            str(wt), self.model, self.slice(0.1), timeout=900)
+        sh(f"git checkout -q -- . && git clean -fdq", wt)
+        try:
+            n_cases = len(json.loads(cases.read_text()))
+            assert prog.exists() and n_cases
+        except Exception as e:
+            prog.unlink(missing_ok=True)
+            cases.unlink(missing_ok=True)
+            self.log("probe_failed", error=repr(e)[:200])
+            return None
+        self.log("probe", lang=self.lang.name, cases=n_cases)
+        return prog
+
+    def run_probe_program(self, wt):
+        """Run the probe in a worktree against its code. None if it does not build or print the array."""
+        wt = pathlib.Path(wt)
+        dest = wt / self.lang.probe_path
+        existed = dest.parent.exists()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(self.state / "probe_program", dest)
+        try:
+            p = subprocess.run(self.lang.probe_cmd, cwd=wt, shell=True, capture_output=True, text=True, timeout=900)
+            out = json.loads(p.stdout.strip().splitlines()[-1]) if p.returncode == 0 and p.stdout.strip() else None
+            return out if isinstance(out, list) else None
+        except Exception:
+            return None
+        finally:
+            dest.unlink(missing_ok=True)
+            if not existed:
+                shutil.rmtree(dest.parent, ignore_errors=True)
+
     def make_probe(self, wt):
+        if self.lang.name != "python":
+            return self.make_probe_program(wt, "every rule and corner of the specification: each grammar branch, "
+                                           "boundaries, invalid input that must be rejected, alternative spellings, "
+                                           "ordering, combinations of features, unicode, empty input.", n="200-400")
         probe = self.state / "probe.json"
         if probe.exists():
             return probe
@@ -235,6 +289,8 @@ class Run:
         probe = self.make_probe(cands[0][0])
         if not probe:
             return 0
+        if self.lang.name != "python":
+            return self.diff_round_program(cands, rnd)
         rows, n_dis, n_all = disagreements([c[0] for c in cands], probe)
         self.log("diff", round=rnd, disagree=n_dis, of=n_all)
         if not rows:
@@ -265,11 +321,61 @@ class Run:
             src = prev_p.read_text() + "\n" + body
         prev_p.write_text(src)
         for c in cands:
-            shutil.copy(prev_p, c[0] / DIFF_TEST)
+            shutil.copy(prev_p, c[0] / self.diff_test)
             self.commit(c[0], f"heartgold: differential tests round {rnd}")
             c[1] = self.gate(c[0])
         self.log("diff_tests", round=rnd, new=n, keys=[c[1]["key"] for c in cands])
         return n
+
+    def diff_round_program(self, cands, rnd):
+        """diff_round for other languages: the same judge, then the agent writes the verdicts as tests in the
+        repo's own framework."""
+        names = json.loads((self.state / "probe_cases.json").read_text())
+        results = [self.run_probe_program(c[0]) for c in cands]
+        rows = []
+        for k, name in enumerate(names):
+            outs = {i: r[k] for i, r in enumerate(results) if r and k < len(r)}
+            if len(set(outs.values())) > 1:
+                rows.append(dict(expr=name, outputs=outs))
+        self.log("diff", round=rnd, disagree=len(rows), of=len(names))
+        if not rows:
+            return 0
+        rows = rows[:40]
+        listing = "\n".join(f"{j}. {r['expr']}\n   candidate outputs: " + "; ".join(f"#{c}: {o}" for c, o in sorted(r["outputs"].items()))
+                            for j, r in enumerate(rows))
+        reply = claude(
+            f"Goal:\n{self.goal}\n{self.spec_note()}\nSeveral implementations disagree on these cases ('=' prefix: "
+            "the result as JSON; '!' prefix: the call failed with that error type):\n" + listing +
+            "\n\nFor each, decide the CORRECT result strictly from the specification text (quote the rule in `why`). "
+            "The right answer may differ from every candidate. Use 'unsure' if the spec does not settle it. Reply only "
+            'with JSON: {"verdicts": [{"i": 0, "expected": "=<json>" | "!<ErrorType>" | "unsure", "why": "..."}]}',
+            str(self.repo), self.model, self.slice(0.05), tools=["Read", "Grep", "Glob"])
+        verdicts = [dict(v, case=rows[v["i"]]["expr"]) for v in (extract_json(reply, {}) or {}).get("verdicts", [])
+                    if isinstance(v.get("i"), int) and 0 <= v["i"] < len(rows) and v.get("expected") not in (None, "unsure")]
+        if not verdicts:
+            return 0
+        vpath = self.state / f"verdicts_r{rnd}.json"
+        vpath.write_text(json.dumps(verdicts, indent=1))
+        wt = cands[0][0]
+        claude(
+            f"Turn the judged cases in {vpath} into tests with {self.lang.framework} ({self.lang.naming('diff')}). "
+            "Each case gives the call and the CORRECT result ('=' + JSON value, or '!' + the error type the call must "
+            "raise); keep each `why` as a comment. Extend the file if it exists. Do not change any other file. The "
+            f"tests must compile and be picked up by: {self.lang.run_kind('diff')} (they may fail against this code).",
+            str(wt), self.model, self.slice(0.05), timeout=900)
+        src = wt / self.diff_test
+        if not src.exists():
+            self.log("diff_tests", round=rnd, new=0, error="no test file written")
+            return 0
+        shutil.copy(src, self.state / "diff_tests")
+        for c in cands:
+            (c[0] / self.diff_test).parent.mkdir(parents=True, exist_ok=True)
+            if c[0] != wt:
+                shutil.copy(self.state / "diff_tests", c[0] / self.diff_test)
+            self.commit(c[0], f"heartgold: differential tests round {rnd}")
+            c[1] = self.gate(c[0])
+        self.log("diff_tests", round=rnd, new=len(verdicts), keys=[c[1]["key"] for c in cands])
+        return len(verdicts)
 
     def fix(self, wt, g, what):
         before = self.head(wt)
@@ -280,7 +386,7 @@ class Run:
         claude(
             f"Goal:\n{self.goal}\n{self.spec_note()}\n{what}\nThese tests fail:\n" + "\n".join(fails[:60]) +
             f"\n\nTest output tail:\n{tails[-4000:]}\n"
-            f"Fix the CODE so they pass (do not edit tests). {DIFF_TEST} was decided against the specification and "
+            f"Fix the CODE so they pass (do not edit tests). {self.diff_test} was decided against the specification and "
             f"is the most trustworthy. Run: {self.test_cmd}",
             wt, self.model, self.slice(0.1), timeout=1500)
         self.commit(wt, "heartgold fix")
@@ -475,10 +581,20 @@ class SpeedRun(Run):
     A change is kept only if (1) its outputs match the ORIGINAL code on hundreds of probe inputs, (2) all
     tests pass, and (3) it is faster on both the repo's benchmark and an independent one heartgold wrote."""
 
+    def tricks_word(self):
+        return "pure-Python" if self.lang.name == "python" else self.lang.label
+
+    def tricks_examples(self):
+        if self.lang.name == "python":  # the wording the published Python benchmarks were run with
+            return ("bit-parallelism with Python big ints, early cutoffs/pruning, better data layout, built-ins that "
+                    "run in C such as bytes/bytearray slicing, str methods, sorting")
+        return ("early cutoffs/pruning, cache-friendly data layout, avoiding allocation in hot loops, the standard "
+                "library's fastest primitives, SIMD-friendly loops, the right integer widths")
+
     def ideas(self):
         reply_q = claude(
             f"Goal:\n{self.goal}\n\nCode:\n{self.code}\n\nWrite 4 web search queries to find the FASTEST known "
-            "algorithms and pure-Python implementation tricks for exactly this computation (papers, competitive-"
+            f"algorithms and {self.tricks_word()} implementation tricks for exactly this computation (papers, competitive-"
             'programming write-ups, well-known libraries\' approaches). Reply only with JSON: {"queries": [...]}',
             str(self.repo), self.model, self.slice(0.02), tools=[])
         from .research import search_passages
@@ -488,10 +604,9 @@ class SpeedRun(Run):
         src = "\n\n".join(f"[{i}] {p['url']}\n{p['text']}" for i, p in enumerate(passages))
         reply = claude(
             f"Goal:\n{self.goal}\n\nCode:\n{self.code}\n\nResearch:\n{src or '(none)'}\n\n"
-            "List the 6 most promising, DIFFERENT optimization strategies for this code in pure Python, best first "
-            "(algorithmic changes before micro-optimizations; e.g. a better algorithm, bit-parallelism with Python "
-            "big ints, early cutoffs/pruning, better data layout, built-ins that run in C such as bytes/bytearray "
-            "slicing, str methods, sorting). For each: name, how it works, expected speedup over the CURRENT code "
+            f"List the 6 most promising, DIFFERENT optimization strategies for this code in {self.tricks_word()}, best first "
+            "(algorithmic changes before micro-optimizations; e.g. a better algorithm, " + self.tricks_examples() +
+            "). For each: name, how it works, expected speedup over the CURRENT code "
             "as a number, the passage it came from (index or null). Reply only with JSON: "
             '{"ideas": [{"name": "...", "how": "...", "expected_speedup": 50, "source": 0}]}',
             str(self.repo), self.model, self.slice(0.05), tools=[])
@@ -505,6 +620,8 @@ class SpeedRun(Run):
     def oracle(self):
         """Probe expressions + the ORIGINAL code's outputs for them, plus an independent benchmark.
         Two agent calls in parallel, each capped at 5 minutes; the whole phase gets at most 20% of the time."""
+        if self.lang.name != "python":
+            return self.oracle_program()
         from .diff import run_probe
         probe, alt = self.state / "probe.json", self.state / "bench_alt.py"
         wt = self.worktree("oracle")
@@ -562,6 +679,46 @@ class SpeedRun(Run):
         self.log("speed.oracle", probe=expected is not None, exprs=len(expected or []), base_alt=base_alt)
         return expected, base_alt
 
+    def oracle_program(self):
+        """oracle() for other languages: a probe program, and an independent benchmark in the language's slot."""
+        wt = self.worktree("oracle")
+        cap = max(180, min(300, int(self.time_limit * 0.2)))
+        slot = self.lang.bench_slot("_bench_alt")
+        alt = self.state / "bench_alt"
+
+        def make_alt():
+            if not slot or not self.bench_cmd:
+                return
+            claude(
+                f"Goal:\n{self.goal}\n\nRead the benchmark run by `{self.bench_cmd}`, then write EXACTLY {wt / slot[0]}: an "
+                "independent benchmark of the same public API on a DIFFERENT input distribution (other sizes, value "
+                "ranges, worst cases such as tiny alphabets or many duplicates) and across the full range of every "
+                f"PARAMETER the API allows. It is run with `{slot[1]}` and prints only the elapsed seconds on its last "
+                "line. Size it so it takes 0.5-4 s on the CURRENT slow code; run it at most twice. Then copy it to "
+                f"{alt}. Do not modify anything else.",
+                str(wt), self.model, self.slice(0.07), timeout=cap)
+
+        with ThreadPoolExecutor(2) as ex:
+            futs = [ex.submit(self.make_probe_program, wt, "the public API on varied inputs: edge cases (empty, size 0/1, "
+                              "duplicates, unicode, extreme values) and deterministic small/medium inputs. EACH case must "
+                              "finish in well under 0.5 s on the CURRENT slow code.", "150-300"), ex.submit(make_alt)]
+            [f.result() for f in futs]
+        sh("git checkout -q -- . && git clean -fdq", wt)
+        expected = self.run_probe_program(wt) if (self.state / "probe_program").exists() else None
+        if expected is not None and all(str(x).startswith("!") for x in expected):
+            expected = None
+        base_alt = None
+        if expected is not None:
+            (self.state / "probe_expected.json").write_text(json.dumps(expected))
+        if alt.exists():
+            base_alt = self.bench_prog(wt, alt, "_bench_alt")
+            if base_alt == float("inf"):
+                alt.unlink()
+                base_alt = None
+        self.drop_worktree(wt)
+        self.log("speed.oracle", lang=self.lang.name, probe=expected is not None, exprs=len(expected or []), base_alt=base_alt)
+        return expected, base_alt
+
     def fix_probe_setup(self, wt, probe):
         """The probe's import line must work against the real layout (e.g. `src.x`, not `x`): try it, and
         if it fails try the module paths heartgold found in the repo, then ask the agent as a last resort."""
@@ -599,6 +756,8 @@ class SpeedRun(Run):
     def adversary(self, ref, best):
         """RAISE-style adversarial instance search: inputs that are worst-case for the CURRENT winner."""
         k = len(self.adv_benches) + 1
+        if self.lang.name != "python":
+            return self.adversary_program(ref, best, k)
         path = self.state / f"bench_adv{k}.py"
         wt = self.worktree("adv", ref)
         claude(
@@ -630,6 +789,39 @@ class SpeedRun(Run):
         self.drop_worktree(cwt)
         self.log("speed.adversary", k=k, ok=True, original=b0, current=m["extra"].get(path.name),
                  worst_ratio=round(self.objective(m), 5))
+        return m
+
+    def adversary_program(self, ref, best, k):
+        slot = self.lang.bench_slot("_bench_adv")
+        if not slot or not self.bench_cmd:
+            return best
+        path = self.state / f"bench_adv{k}"
+        wt = self.worktree("adv", ref)
+        claude(
+            f"Goal:\n{self.goal}\n\nRead the current implementation and the benchmark run by `{self.bench_cmd}`. Find the "
+            "input class that is WORST-CASE for this specific algorithm (adversarial orderings, sizes that defeat its "
+            "pruning, the parameter values where its cost grows fastest) while still valid input. Write EXACTLY "
+            f"{wt / slot[0]}: a benchmark on that input class, run with `{slot[1]}`, printing only the elapsed seconds on "
+            f"its last line. Size it so the ORIGINAL code (`git show {self.base}:<file>`) would take roughly 1-5 s. Run "
+            f"it at most twice, copy it to {path}, and stop. Do not modify anything else.",
+            str(wt), self.model, self.slice(0.06), timeout=300, tools=["Read", "Grep", "Glob", "Bash", "Write"])
+        self.drop_worktree(wt)
+        if not path.exists():
+            self.log("speed.adversary", k=k, ok=False)
+            return best
+        owt = self.worktree("advbase", self.base)
+        b0 = self.bench_prog(owt, path, "_bench_adv")
+        self.drop_worktree(owt)
+        if b0 in (None, float("inf")):
+            path.unlink()
+            self.log("speed.adversary", k=k, ok=False, reason="original could not run it")
+            return best
+        self.adv_benches.append(dict(path=path))
+        self.adv_base[path.name] = b0
+        cwt = self.worktree("advcur", ref)
+        m = self.measure(cwt, self.expected)
+        self.drop_worktree(cwt)
+        self.log("speed.adversary", k=k, ok=True, original=b0, current=m["extra"].get(path.name), worst_ratio=round(self.objective(m), 5))
         return m
 
     def reference_impl(self, idea, got_x):
@@ -730,6 +922,28 @@ class SpeedRun(Run):
         self.log("speed.more_ideas", ideas=[i.get("name") for i in ideas])
         return ideas[:3]
 
+    def bench_prog(self, wt, stored, slot_name):
+        """Run an extra benchmark program kept in .heartgold (stored) from its slot in the worktree; best of 3."""
+        rel, cmd = self.lang.bench_slot(slot_name)
+        dest = pathlib.Path(wt) / rel
+        existed = dest.parent.exists()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(stored, dest)
+        try:
+            best = None
+            for _ in range(3):
+                code, out = sh(cmd, wt, 180)
+                try:
+                    v = float(out.strip().splitlines()[-1]) if code == 0 else float("inf")
+                except (ValueError, IndexError):
+                    v = float("inf")
+                best = v if best is None else min(best, v)
+            return best
+        finally:
+            dest.unlink(missing_ok=True)
+            if not existed:
+                shutil.rmtree(dest.parent, ignore_errors=True)
+
     def bench_file(self, wt, fname):
         best = None
         for _ in range(3):
@@ -752,7 +966,15 @@ class SpeedRun(Run):
         wt = pathlib.Path(wt)
         g = self.gate(wt)
         same, mismatches = True, []
-        if expected is not None:
+        if expected is not None and self.lang.name != "python":
+            got = self.run_probe_program(wt)
+            names = json.loads((self.state / "probe_cases.json").read_text())
+            if got is None or len(got) != len(expected):
+                same, mismatches = False, [("(probe did not build, crashed or timed out)", "", "")]
+            else:
+                mismatches = [(x, e, gg) for x, e, gg in zip(names, expected, got) if not same_output(e, gg)]
+                same = not mismatches
+        elif expected is not None:
             got = run_probe(wt, self.state / "probe.json")
             exprs = json.loads((self.state / "probe.json").read_text())["exprs"]
             if got is None or len(got) != len(expected):
@@ -763,12 +985,17 @@ class SpeedRun(Run):
                               if e != "!timeout" and not same_output(e, g)]
                 same = not mismatches
         alt = None
-        if (self.state / "bench_alt.py").exists():
+        if self.lang.name != "python" and (self.state / "bench_alt").exists():
+            alt = self.bench_prog(wt, self.state / "bench_alt", "_bench_alt")
+        elif (self.state / "bench_alt.py").exists():
             shutil.copy(self.state / "bench_alt.py", wt / "_bench_alt.py")
             alt = self.bench_file(wt, "_bench_alt.py")
             (wt / "_bench_alt.py").unlink(missing_ok=True)
         extra = {}
         for b in getattr(self, "adv_benches", []):
+            if self.lang.name != "python":
+                extra[b["path"].name] = self.bench_prog(wt, b["path"], "_bench_adv")
+                continue
             shutil.copy(b["path"], wt / "_bench_adv.py")
             extra[b["path"].name] = self.bench_file(wt, "_bench_adv.py")
             (wt / "_bench_adv.py").unlink(missing_ok=True)

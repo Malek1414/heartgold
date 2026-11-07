@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Differential testing across candidates (DiffSpec-style): run every candidate on many probe
 expressions, collect disagreements, let a spec-reading judge decide the right answers, and turn
 the verdicts into exact-value tests."""

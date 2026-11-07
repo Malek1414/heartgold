@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """The heartgold pipeline: map -> research -> spec tests -> candidates -> judge -> adversarial -> perf -> merge."""
 import datetime, importlib.util, json, pathlib, re, shlex, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor

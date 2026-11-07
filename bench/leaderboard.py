@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Write bench/LEADERBOARD.md: per (suite, tool), the latest VALID result of each fixture
 (runs that hit the usage limit or read hidden files are excluded)."""
 import json, pathlib

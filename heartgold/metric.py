@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Metric mode: raise a measured score (accuracy, recall, nDCG...) and keep only what holds up on held-out data.
 
 The repo supplies two commands that print one JSON object on their last line:
@@ -82,7 +84,7 @@ class MetricRun(Run):
         return ", ".join(f"{k} {s[k]:.3f}" for k in [self.metric, *self.also] if s and k in s) if s else "no score"
 
     # ---------- ideas
-    def ideas(self, best, history):
+    def ideas(self, best, history, retry=False):
         tried = "\n".join(f"- {h}" for h in history[-16:]) or "(nothing yet)"
         reply = claude(
             f"Goal:\n{self.goal}\n\nCode:\n{self.code}\n\nCurrent score on the tuning data (`{self.metric_cmd}`): "
@@ -95,6 +97,14 @@ class MetricRun(Run):
             'JSON: {"ideas": [{"name": "...", "how": "...", "why": "...", "expected_gain": 0.05, "source": "url or null"}]}',
             str(self.repo), self.model, self.slice(0.05), timeout=900, tools=["Read", "Grep", "Glob", "WebSearch", "WebFetch"])
         ideas = (extract_json(reply, {}) or {}).get("ideas") or []
+        if not ideas and not retry:
+            # an empty or unparseable reply (e.g. the prompt grew too long with history): once more, with less code
+            self.log("metric.ideas_retry", reply=(reply or "")[:300])
+            code, self.code = self.code, self.code[:20000]
+            try:
+                return self.ideas(best, history, retry=True)
+            finally:
+                self.code = code
         self.log("metric.ideas", ideas=[i.get("name") for i in ideas])
         return ideas
 

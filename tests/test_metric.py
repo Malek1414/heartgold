@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Metric mode's keep/drop logic, end to end on a tiny repo, with a scripted agent instead of claude."""
 import json, pathlib, subprocess, sys, textwrap
 

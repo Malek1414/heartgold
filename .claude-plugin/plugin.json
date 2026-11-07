@@ -15,5 +15,6 @@
     "research",
     "code-improvement",
     "tdd"
-  ]
+  ],
+  "license": "Apache-2.0"
 }

@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Benchmark runner: run one tool on every fixture under the same budget and score it.
 
 Usage: python bench/run.py --tool heartgold [--fixtures semver lru] [--budget-usd 3] [--jobs 3]

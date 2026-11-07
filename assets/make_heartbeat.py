@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Animate the golden-heart logo with a physiologically ordered cardiac cycle (72 bpm, one loop = one beat).
 
 Each anatomical part of the image gets its own smooth displacement field, timed to the real cycle:

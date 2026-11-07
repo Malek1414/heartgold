@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Web research: queries -> passages -> cited requirements, with a verbatim-quote gate."""
 import json, re, shutil, subprocess
 from concurrent.futures import ThreadPoolExecutor

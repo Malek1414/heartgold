@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Build the open-ended speed suite (suite "speed"). Score has no ceiling: any wrong hidden case zeroes
 speed credit, and speed is measured on a HIDDEN benchmark with different inputs than the visible bench.py.
 

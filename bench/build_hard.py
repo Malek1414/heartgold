@@ -1,3 +1,5 @@
+# Copyright 2026 Malek Hassan (https://github.com/Malek1414/heartgold)
+# SPDX-License-Identifier: Apache-2.0
 """Build the hard fixture suite. Hidden expected values come from real oracles, not from us:
 packaging (PEP 440), croniter (cron), git itself (gitignore), protego (robots.txt, RFC 9309),
 and the RFC 3986 section 5.4 examples (reference resolution).
