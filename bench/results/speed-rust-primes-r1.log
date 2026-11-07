@@ -1,0 +1,25 @@
+[heartgold    0.2s $0.00] map lang=rust test_cmd=cargo test -q bench_cmd=cargo run -q --release --example bench files=11 orig_tests=['tests/basic.rs']
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=15 cost=0.31091799999999997
+[heartgold  165.7s $0.43] probe lang=rust cases=188
+[heartgold  193.2s $0.43] speed.oracle lang=rust probe=True exprs=188 base_alt=3.5312024170000003
+[heartgold  212.1s $0.43] speed.baseline bench=0.300326708 alt=3.5312024170000003 tests_ok=True
+[heartgold  432.7s $0.53] speed.ideas queries=['fastest prime counting algorithm sieve of Eratosthenes optimization Rust', 'segmented sieve wheel factorization competitive programming prime counting', 'Lucy_Hedgehog prime counting function algorithm O(n^3/4)', 'Rust SIMD bitset sieve of Eratosthenes performance optimization'] ideas=['Si
+[heartgold  511.7s $0.66] speed.attempt i=0 idea=Sieve of Eratosthenes instead of trial division ok=True same=True bench=0.002477458 alt=0.00992525 failing=[] why=
+[heartgold  532.9s $0.84] speed.attempt i=1 idea=Bit-packed odd-only sieve ok=True same=True bench=0.008781333 alt=0.016290917 failing=[] why=
+[heartgold  533.2s $0.84] speed.merged ref=e9613c57b6 ok=True
+[heartgold  654.6s $1.02] speed.adversary k=1 ok=True original=2.941777459 current=0.0070735 worst_ratio=0.0024
+[heartgold  654.8s $1.02] speed.round round=1 best=0.001728375 alt=0.004203 improved=True gain=415.887 second=0.00461
+[heartgold  796.5s $1.26] speed.attempt i=0 idea=Wheel factorization (mod 2/3/5 wheel) ok=True same=True bench=0.001401375 alt=0.003756791 failing=[] why=
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=24 cost=0.49156260000000007
+[heartgold  996.8s $1.75] speed.attempt i=1 idea=Segmented sieve for cache locality ok=True same=True bench=0.0054175 alt=0.014160916 failing=[] why=
+[heartgold  997.1s $1.75] speed.merged ref=b8896b3269 ok=True
+[heartgold 1091.5s $1.91] speed.adversary k=2 ok=True original=1.098238167 current=0.004421 worst_ratio=0.00403
+[heartgold 1091.7s $1.91] speed.round round=2 best=0.001398084 alt=0.003767625 improved=True gain=0.597 second=0.0024
+[heartgold 1103.7s $1.91] speed.reference_impl idea=Wheel factorization (mod 2/3/5 wheel) measured_x=1.13 expected=260 sources=['https://pypi.org/project/wheel-factorize/', 'https://github.com/mcastorina/wheel-factorization', 'https://pypi.org/project/wheel-factorize/', 'https://en.wikipedia.org/wiki/Wheel_factorization', 'https://github.com/mho
+[heartgold 1323.4s $2.25] speed.attempt i=0 idea=Segmented sieve for cache locality ok=True same=True bench=0.001396583 alt=0.0037375 failing=[] why=
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=17 cost=0.48004640000000004
+[heartgold 1369.2s $2.73] speed.attempt i=1 idea=Wheel factorization (mod 2/3/5 wheel) ok=True same=True bench=0.000740834 alt=0.002105291 failing=[] why=
+[heartgold 1369.3s $2.73] speed.merged ref=2d945109e5 ok=True
+[heartgold 1369.5s $2.73] speed.round round=3 best=0.000740834 alt=0.002105291 improved=True gain=2.3 second=0.0024
+[heartgold 1369.5s $2.73] done kept=True base=0.300326708 best=0.000740834 speedup=405.39
+HEARTGOLD_COST_USD=2.7277

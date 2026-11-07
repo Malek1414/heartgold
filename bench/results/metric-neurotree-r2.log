@@ -1,0 +1,14 @@
+[heartgold    5.6s $0.00] map lang=python test_cmd=/Users/malekhassan/Desktop/Neurotree/.venv/bin/python -m pytest -q -p no:cacheprovider bench_cmd=None files=1396 orig_tests=['tests/conftest.py', 'tests/test_areas.py', 'tests/test_attend.py', 'tests/test_git.py', 'tests/test_pipeline.py', 'tests/test_privacy.py', 'tests/test_sc
+[heartgold   49.2s $0.00] metric.baseline tune=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195 tests=True
+[heartgold  229.8s $0.71] metric.ideas ideas=['Max-dominant project aggregation instead of raw sum', 'Tune the RRF k constant instead of leaving it hand-set', 'Query-shape-adaptive head weighting', 'Pseudo-relevance-feedback query vector expansion for the semantic head', 'Tune the BM25 field weights (name/path/body) instead of hardcoding
+[heartgold  832.4s $1.69] metric.attempt i=1 idea=Tune the RRF k constant instead of leaving it hand-set tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 1236.3s $2.96] metric.attempt i=0 idea=Max-dominant project aggregation instead of raw sum tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 1892.6s $5.00] metric.attempt i=2 idea=Query-shape-adaptive head weighting tests=True obj=0.4757 score=P@1 0.457, nDCG@10 0.186 failing=[]
+[heartgold 1893.3s $5.00] metric.round round=0 best=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195
+[heartgold 2083.8s $5.57] metric.ideas ideas=['Lexical pseudo-relevance feedback (RM3-style query expansion)', 'Calibrated score-magnitude blend on top of RRF', 'Direct project-level scoring stage for P@1', 'Personalized-PageRank-style restart in the graph step (replace fixed-hop propagation)', 'Adaptive-IDF rescoring of lexical candidat
+[heartgold 3155.7s $6.78] metric.attempt i=2 idea=Direct project-level scoring stage for P@1 tests=True obj=0.5046 score=P@1 0.486, nDCG@10 0.189 failing=[]
+[heartgold 3523.2s $8.53] metric.attempt i=1 idea=Calibrated score-magnitude blend on top of RRF tests=True obj=0.4762 score=P@1 0.457, nDCG@10 0.190 failing=[]
+[heartgold 3911.8s $8.53] metric.attempt i=0 idea=Lexical pseudo-relevance feedback (RM3-style query expansion) tests=True obj=0.4903 score=P@1 0.471, nDCG@10 0.188 failing=[]
+[heartgold 3920.5s $8.53] metric.holdout_gate idea=Direct project-level scoring stage for P@1 holdout=P@1 0.575, nDCG@10 0.195 kept=False
+[heartgold 3920.8s $8.53] metric.round round=1 best=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195
+[heartgold 3920.9s $8.53] metric.done tune=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195 bootstrap={'P@1': [0.0, 0.0, 0.0], 'nDCG@10': [0.0, 0.0, 0.0]} kept=[]

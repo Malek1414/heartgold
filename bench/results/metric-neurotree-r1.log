@@ -1,0 +1,19 @@
+[heartgold    3.7s $0.00] map test_cmd=/Users/malekhassan/Desktop/Neurotree/.venv/bin/python -m pytest -q -p no:cacheprovider bench_cmd=None files=1453 orig_tests=['tests/conftest.py', 'tests/test_areas.py', 'tests/test_attend.py', 'tests/test_git.py', 'tests/test_pipeline.py', 'tests/test_privacy.py', 'tests/test_scoring.py', '
+[heartgold   38.8s $0.00] metric.baseline tune=P@1 0.400, nDCG@10 0.158 holdout=P@1 0.550, nDCG@10 0.169 tests=True
+[heartgold  316.9s $0.55] metric.ideas ideas=['Exact identifier/filename match bonus', 'Saturating (concave) mass rollup per unit', 'Reciprocal Rank Fusion (RRF) for head combination', 'Embedding-based pseudo-relevance query expansion', 'Directory co-location as a second graph channel', 'Confidence-adaptive graph diffusion']
+[heartgold  869.2s $1.41] metric.attempt i=1 idea=Saturating (concave) mass rollup per unit tests=True obj=0.4166 score=P@1 0.400, nDCG@10 0.166 failing=[]
+[heartgold  926.5s $2.40] metric.attempt i=2 idea=Reciprocal Rank Fusion (RRF) for head combination tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 2135.4s $2.40] metric.attempt i=0 idea=Exact identifier/filename match bonus tests=True obj=0.4143 score=P@1 0.400, nDCG@10 0.143 failing=[]
+[heartgold 2142.9s $2.40] metric.holdout_gate idea=Reciprocal Rank Fusion (RRF) for head combination holdout=P@1 0.600, nDCG@10 0.195 kept=True
+[heartgold 2143.1s $2.40] metric.round round=0 best=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195
+[heartgold 2302.0s $2.80] metric.ideas ideas=['Query-shape-aware head gating', 'Pseudo-relevance feedback (Rocchio) query expansion for the semantic head', 'Term-coverage normalization for the lexical head', 'Random-walk-with-restart instead of one greedy hop for the graph step', 'Per-query score calibration before head fusion', 'MMR div
+HEARTGOLD_AGENT_STOP subtype=success turns=11 cost=0.2737896
+HEARTGOLD_AGENT_STOP subtype=success turns=11 cost=0.3461681999999999
+HEARTGOLD_AGENT_STOP subtype=success turns=13 cost=0.3873846
+[heartgold 2701.5s $3.81] metric.attempt i=2 idea=Term-coverage normalization for the lexical head tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 2718.8s $3.81] metric.attempt i=1 idea=Pseudo-relevance feedback (Rocchio) query expansion for the semantic head tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 2736.4s $3.81] metric.attempt i=0 idea=Query-shape-aware head gating tests=True obj=0.476 score=P@1 0.457, nDCG@10 0.189 failing=[]
+[heartgold 2736.5s $3.81] metric.round round=1 best=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195
+HEARTGOLD_AGENT_STOP subtype=success turns=1 cost=0
+[heartgold 2910.9s $3.81] metric.ideas ideas=[]
+[heartgold 2911.1s $3.81] metric.done tune=P@1 0.457, nDCG@10 0.189 holdout=P@1 0.600, nDCG@10 0.195 bootstrap={'P@1': [0.05, 0.0, 0.125], 'nDCG@10': [0.026, -0.03, 0.08]} kept=['Reciprocal Rank Fusion (RRF) for head combination']

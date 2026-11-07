@@ -1,0 +1,12 @@
+[heartgold    0.1s $0.00] map lang=js test_cmd=node --test bench_cmd=node bench.mjs files=4 orig_tests=['tests/lcs.test.mjs']
+[heartgold  738.2s $0.15] probe lang=js cases=184
+[heartgold  738.3s $0.15] speed.oracle lang=js probe=True exprs=184 base_alt=None
+[heartgold  741.1s $0.15] speed.baseline bench=0.768556333 alt=None tests_ok=True
+[heartgold  863.0s $0.26] speed.ideas queries=['fastest longest common subsequence algorithm bit-parallel Hunt-Szymanski Myers O(ND)', 'LCS length JavaScript typed array bitset optimization competitive programming', 'Hunt-Szymanski algorithm LCS implementation bitwise DP speedup', 'optimize dynamic programming LCS length rolling array s
+[heartgold  910.1s $0.38] speed.attempt i=1 idea=Rolling 1D typed-array DP ok=True same=True bench=0.191509625 alt=None failing=[] why=
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=23 cost=0.4833398
+[heartgold 1124.4s $0.87] speed.attempt i=0 idea=Bit-parallel (Crochemore/Hyyrö-style) LCS length ok=True same=True bench=0.012348624999999998 alt=None failing=[] why=
+[heartgold 1124.5s $0.87] speed.merged ref=6a37cdc85a ok=True
+[heartgold 1124.6s $0.87] speed.round round=1 best=0.012348624999999998 alt=None improved=True gain=62.238 second=0.24918
+[heartgold 1124.6s $0.87] done kept=True base=0.768556333 best=0.012348624999999998 speedup=62.24
+HEARTGOLD_COST_USD=0.8676

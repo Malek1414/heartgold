@@ -1,0 +1,18 @@
+[heartgold    0.1s $0.00] map lang=go test_cmd=go test -v ./... bench_cmd=None files=3 orig_tests=['semver_test.go']
+[heartgold    1.4s $0.00] baseline key=(1, 0, 0, 0) bench=None
+[heartgold    8.1s $0.02] research.queries queries=['semver.org specification precedence section 11 pre-release build metadata', 'semantic versioning 2.0.0 comparing precedence algorithm major minor patch pre-release', 'golang semver compare implementation pre-release numeric identifier comparison pitfalls', 'semver precedence comparison edg
+[heartgold   45.6s $0.02] research.passages n=24 urls=['https://deepwiki.com/Masterminds/semver/3.4-prerelease-handling', 'https://deepwiki.com/dtolnay/semver/2.3-prerelease-and-buildmetadata', 'https://deepwiki.com/semver/semver/2.3-version-precedence', 'https://github.com/0xelitesystem/semantic-versioning-reference/blob/main/04-prerelease-a
+[heartgold  239.8s $0.09] research.requirements n=19 verified=15
+[heartgold  248.6s $0.11] research.specs wanted=['https://semver.org/spec/v2.0.0.html'] saved=['https://semver.org/spec/v2.0.0.html']
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=10 cost=0.22069180000000002
+[heartgold  439.5s $0.33] spec_tests written=True
+[heartgold  466.7s $0.58] candidate i=0 key=(1, 19, 19, 0) orig_ok=True failing=[] bench=None
+[heartgold  467.6s $0.58] candidate i=1 key=(1, 19, 19, 0) orig_ok=True failing=[] bench=None
+[heartgold  470.5s $0.73] candidate i=2 key=(1, 19, 19, 0) orig_ok=True failing=[] bench=None
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=8 cost=0.30115879999999995
+[heartgold  633.8s $1.03] probe_failed error=FileNotFoundError(2, 'No such file or directory')
+HEARTGOLD_AGENT_STOP subtype=error_max_budget_usd turns=10 cost=0.3388358
+[heartgold  836.3s $1.37] probe_failed error=FileNotFoundError(2, 'No such file or directory')
+[heartgold  836.4s $1.37] winner key=(1, 19, 19, 0) others=[(1, 19, 19, 0)]
+[heartgold  836.5s $1.37] done kept=True key=(1, 19, 19, 0) bench=None
+HEARTGOLD_COST_USD=1.3693

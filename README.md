@@ -51,6 +51,13 @@ heartgold has two modes, picked from the goal:
 specification text, writes tests from it, builds several candidates, finds inputs where they disagree, and has a
 spec-reading judge settle each disagreement into an exact-value test (DiffSpec-style).
 
+**Metric mode** (give `--metric-cmd` and `--holdout-cmd`): for scores rather than speed (accuracy, recall, nDCG). The
+repo prints its score as JSON on data the agents may tune on, and on held-out data that only heartgold may read
+(`HEARTGOLD_HOLDOUT=1` is set for that one command and never for an agent). Attempts run in parallel worktrees and
+are chosen on tune data; tests and the metric code itself are restored before every score; a change that makes the
+held-out score worse is dropped as overfitting. The report quotes the held-out change with a paired-bootstrap 95 %
+interval, the only number worth quoting.
+
 Every step is logged to `.heartgold/ledger.jsonl` in the target repo, and a `.heartgold/report.md` lists what was
 tried, what was kept and why.
 
@@ -81,6 +88,31 @@ suites cannot separate good tools. They are kept as regression checks.
 Full tables: [`bench/LEADERBOARD.md`](bench/LEADERBOARD.md). How the loop that built heartgold worked:
 [`LOOP.md`](LOOP.md) and [`PLAN.md`](PLAN.md).
 
+## Languages
+
+heartgold works in the repo's own language. Each ecosystem has an adapter (`heartgold/lang.py`) that knows how to run
+the repo's tests and heartgold's own tests separately, read the results, where heartgold's tests and probe programs
+go, and how to run an extra benchmark. `tests/test_lang.py` builds a real project in every language and checks all of
+it against the real toolchain.
+
+| Language | Tests | Adapter checked on a real project | Full run with agents |
+|---|---|---|---|
+| Python | pytest | yes | speed, spec and metric suites; Neurotree |
+| JavaScript / TypeScript | node:test, vitest, jest | yes | speed: LCS 62x (80x on unseen inputs, 3,004 unseen cases identical) |
+| Rust | cargo test | yes | speed: prime counting 405x (606x at an unseen size, 2,406 unseen cases identical) |
+| Go | go test | yes | spec: SemVer 2.0.0 precedence from an empty stub, passes 153 hidden checks |
+| Java | JUnit 5 via Maven | yes | not yet |
+| Ruby | RSpec | yes | not yet |
+| C# | xUnit via `dotnet test` | yes | not yet |
+| C / C++ | CTest via CMake | yes | not yet |
+| PHP | PHPUnit | yes | not yet |
+| Swift | XCTest | no (needs full Xcode) | not yet |
+
+The probe protocol is the same everywhere: a small program that calls the public API on hundreds of inputs and
+prints one JSON array (`"=<result as JSON>"` or `"!<error type>"` per case). heartgold records it against the original
+code and every candidate must match it. Speed mode also writes its independent and adversarial benchmarks in the
+repo's language.
+
 ## Install as a Claude Code plugin
 
 heartgold ships as a Claude Code plugin marketplace from this repo, so you can install it straight from GitHub:
@@ -103,7 +135,8 @@ that runs your target repo's tests. `gh` and `searchify` are optional research s
 
 ## Requirements
 
-- Python 3.11+ with `pytest` (and `pytest-timeout`) in the environment that runs the target repo's tests
+- Python 3.11+ to run heartgold itself (no third-party dependencies)
+- The target repo's own toolchain: pytest, node, cargo, go, maven, rspec, dotnet, cmake or phpunit
 - [Claude Code](https://claude.com/claude-code) CLI (`claude -p`) - the coding agent
 - Optional: a `searchify` CLI for web research, and an authenticated `gh` for GitHub code search
 
@@ -115,12 +148,37 @@ python -m heartgold run REPO --goal "..." | --goal-file goal.md
     --time-limit 1500      wall-clock seconds
     --model sonnet
     --test-cmd / --bench-cmd   override auto-detection
+
+metric mode:
+    --metric-cmd "..."     prints the score on tuning data as JSON (last line)
+    --holdout-cmd "..."    the same on held-out data; run only by heartgold, with HEARTGOLD_HOLDOUT=1
+    --metric P@1           the key to raise;  --also nDCG@10  keys that must not drop on held-out data
+    --protect FILE         files restored before every score (the metric code)
+    --rounds 3
 ```
 
 ## Status
 
-Research prototype. The current pipeline (v18) has the best speed-suite score so far (1.286) and is the first
-version that improved a real codebase: on [Neurotree](bench/real/README.md) (a 55k-node, 160 MB graph) it made
-`attend()` 4.5x faster with identical results and all 36 tests passing. Each real-repo run so far exposed a bug the
-small fixtures could not (see bench/real/README.md); more real repos are next. The git log explains what each
-version changed and why.
+Research prototype. Results on real code, each checked independently afterwards:
+
+- **Neurotree, speed** ([bench/real](bench/real/README.md)): `attend()` 4.5x faster (0.362 s → 0.080 s) with
+  identical results and 36/36 tests.
+- **Neurotree, accuracy** (metric mode): held-out P@1 0.55 → 0.60 and nDCG@10 0.169 → 0.195 on 40 questions no agent
+  ever saw, on frozen inputs. The paired bootstrap for P@1 is +0.050 [+0.000, +0.125], so a likely gain rather than a
+  proven one. It kept one change (reciprocal rank fusion) out of nine tried. One of the others raised the tune score
+  but lowered the held-out score, and the held-out gate dropped it.
+- **JavaScript, speed**: LCS 62x faster. On 3,004 inputs it never saw the results were identical, and on an unseen
+  input distribution it was 80x faster. Cost $0.87.
+- **Rust, speed**: prime counting 405x faster. 2,406 unseen inputs were identical, and at an unseen size (n = 5M) it
+  was 606x faster. Cost $2.73.
+- **Go, spec**: SemVer 2.0.0 precedence from an empty stub. It wrote spec tests in Go and ran a 90-case Go probe
+  across three candidates, and the result passes 153 hidden checks. Cost $1.17.
+
+Logs of every run are in `bench/results/`. The git log explains what each version changed and why.
+
+## License and attribution
+
+heartgold is created by **Malek Hassan** ([@Malek1414](https://github.com/Malek1414)) and licensed under the
+[Apache License 2.0](LICENSE). Under section 4 of the license, every copy, fork or derivative work that is
+redistributed must keep the [NOTICE](NOTICE) file, the copyright and attribution notices in the source files, and a
+statement of the changes it makes.

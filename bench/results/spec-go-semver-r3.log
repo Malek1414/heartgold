@@ -1,0 +1,16 @@
+[heartgold    0.2s $0.00] map lang=go test_cmd=go test -v ./... bench_cmd=None files=3 orig_tests=['semver_test.go']
+[heartgold    2.6s $0.00] baseline key=(1, 0, 0, 0) bench=None
+[heartgold    7.6s $0.02] research.queries queries=['semver.org Semantic Versioning 2.0.0 precedence spec section 11', 'semver precedence pre-release identifier comparison algorithm numeric vs alphanumeric', 'golang semver compare implementation edge cases golang.org/x/mod/semver', 'semver comparison pitfalls leading zeros build metadata ign
+[heartgold   43.1s $0.02] research.passages n=22 urls=['https://deepwiki.com/semver/semver/2-semantic-versioning-specification', 'https://github.com/WalkerCodeRanger/semver/issues/53', 'https://github.com/semver/semver/issues/970', 'https://myguy.tools/blog/semver-precedence-rules-explained', 'https://pkg.go.dev/github.com/go-versions/semver'
+[heartgold   72.9s $0.09] research.requirements n=12 verified=10
+[heartgold   77.9s $0.11] research.specs wanted=['https://semver.org/', 'https://github.com/semver/semver'] saved=['https://semver.org/', 'https://github.com/semver/semver']
+[heartgold  105.9s $0.21] spec_tests written=True
+[heartgold  131.0s $0.30] candidate i=1 key=(1, 12, 12, 0) orig_ok=True failing=[] bench=None
+[heartgold  132.9s $0.40] candidate i=0 key=(1, 12, 12, 0) orig_ok=True failing=[] bench=None
+[heartgold  134.6s $0.55] candidate i=2 key=(1, 12, 12, 0) orig_ok=True failing=[] bench=None
+[heartgold  354.1s $1.03] probe lang=go cases=90
+[heartgold  356.4s $1.03] diff round=1 disagree=5 of=90
+[heartgold  387.6s $1.12] diff round=2 disagree=5 of=90
+[heartgold  419.8s $1.17] winner key=(1, 12, 12, 0) others=[(1, 12, 12, 0)]
+[heartgold  419.9s $1.17] done kept=True key=(1, 12, 12, 0) bench=None
+HEARTGOLD_COST_USD=1.1691

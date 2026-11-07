@@ -217,14 +217,18 @@ class Run:
         prog, cases = self.state / "probe_program", self.state / "probe_cases.json"
         if prog.exists() and cases.exists():
             return prog
-        claude(
+        reply = claude(
             f"Goal:\n{self.goal}\n{self.spec_note()}\nSource files: {', '.join(self.py_modules[:40]) or '(none)'}\n\n"
-            f"{self.lang.probe_rule()}\n\nCover {n} cases: {purpose} Inline every input in the program "
-            "(deterministic, no randomness without a fixed seed); each case must run fast. Run the probe once and check "
-            f"that its last line is a JSON array. Then copy the program to {prog} and write {cases} as a JSON array "
-            "with one short description per case, in the same order (e.g. \"parse('1.0a') \"). Finally DELETE the "
-            f"probe program from the repository ({self.lang.probe_path}); do not change any other file.",
-            str(wt), self.model, self.slice(0.1), timeout=900)
+            f"{self.lang.probe_rule()}\n\nCover {n} cases: {purpose} Write the program file FIRST and keep it "
+            "compact: generate inputs with loops and small tables rather than typing every case (deterministic, no "
+            "randomness without a fixed seed); each case must run fast. Run the probe once and check "
+            "that its last line is a JSON array, and leave it where it is (heartgold collects it). Write "
+            f"{cases} as a JSON array with one short description per case, in the same order (e.g. \"parse('1.0a')\"). "
+            "Do not change any other file.",
+            str(wt), self.model, self.slice(0.2, floor=0.8), timeout=1200)
+        made = pathlib.Path(wt) / self.lang.probe_path
+        if made.exists():
+            shutil.copy(made, prog)
         sh(f"git checkout -q -- . && git clean -fdq", wt)
         try:
             n_cases = len(json.loads(cases.read_text()))
@@ -232,7 +236,7 @@ class Run:
         except Exception as e:
             prog.unlink(missing_ok=True)
             cases.unlink(missing_ok=True)
-            self.log("probe_failed", error=repr(e)[:200])
+            self.log("probe_failed", error=repr(e)[:200], made=made.exists(), reply=(reply or "")[-600:])
             return None
         self.log("probe", lang=self.lang.name, cases=n_cases)
         return prog
@@ -259,7 +263,7 @@ class Run:
         if self.lang.name != "python":
             return self.make_probe_program(wt, "every rule and corner of the specification: each grammar branch, "
                                            "boundaries, invalid input that must be rejected, alternative spellings, "
-                                           "ordering, combinations of features, unicode, empty input.", n="200-400")
+                                           "ordering, combinations of features, unicode, empty input.", n="80-150")
         probe = self.state / "probe.json"
         if probe.exists():
             return probe
@@ -337,7 +341,7 @@ class Run:
             outs = {i: r[k] for i, r in enumerate(results) if r and k < len(r)}
             if len(set(outs.values())) > 1:
                 rows.append(dict(expr=name, outputs=outs))
-        self.log("diff", round=rnd, disagree=len(rows), of=len(names))
+        self.log("diff", round=rnd, disagree=len(rows), of=len(names), cases=[r["expr"] for r in rows[:8]])
         if not rows:
             return 0
         rows = rows[:40]
@@ -353,6 +357,7 @@ class Run:
         verdicts = [dict(v, case=rows[v["i"]]["expr"]) for v in (extract_json(reply, {}) or {}).get("verdicts", [])
                     if isinstance(v.get("i"), int) and 0 <= v["i"] < len(rows) and v.get("expected") not in (None, "unsure")]
         if not verdicts:
+            self.log("diff_tests", round=rnd, new=0, why="the judge found every disagreement unsettled by the spec")
             return 0
         vpath = self.state / f"verdicts_r{rnd}.json"
         vpath.write_text(json.dumps(verdicts, indent=1))
@@ -701,7 +706,7 @@ class SpeedRun(Run):
         with ThreadPoolExecutor(2) as ex:
             futs = [ex.submit(self.make_probe_program, wt, "the public API on varied inputs: edge cases (empty, size 0/1, "
                               "duplicates, unicode, extreme values) and deterministic small/medium inputs. EACH case must "
-                              "finish in well under 0.5 s on the CURRENT slow code.", "150-300"), ex.submit(make_alt)]
+                              "finish in well under 0.5 s on the CURRENT slow code.", "80-150"), ex.submit(make_alt)]
             [f.result() for f in futs]
         sh("git checkout -q -- . && git clean -fdq", wt)
         expected = self.run_probe_program(wt) if (self.state / "probe_program").exists() else None
